@@ -253,6 +253,22 @@ def test_clicker_recovers_after_device_error():
         time.sleep(0.2)
 
 
+def test_tray_is_optional():
+    import tray  # must import with no pystray/Pillow installed
+    assert callable(tray.run)
+    try:
+        import pystray  # noqa: F401
+        return  # installed here, so the missing-dependency path cannot be checked
+    except ImportError:
+        pass
+    try:
+        tray.run(object())
+    except ImportError:
+        pass
+    else:
+        raise AssertionError("run() must ask for the tray deps when they are absent")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

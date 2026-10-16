@@ -10,11 +10,21 @@ python gui.py               # window with hotkey capture, timing fields, profile
 # or, config-driven:
 python main.py              # uses config.json
 python main.py my.json      # or your own config
+python main.py --tray       # plus a system-tray toggle (extra deps, see below)
 ```
 
 In the CLI, `Ctrl+Alt+S` starts and stops clicking; `Esc` panic-stops. Both are
 configurable. In the GUI, click a hotkey field and press the combination you want;
 `Start / Stop` or the toggle hotkey works from any window.
+
+The tray icon is optional and off by default — it needs its own dependencies:
+
+```sh
+pip install -r requirements-tray.txt   # pystray + Pillow
+python main.py --tray
+```
+
+Without them `--tray` prints a notice and runs normally.
 
 ## Configure
 
@@ -67,5 +77,7 @@ python test_engine.py   # timing loop + hotkey formatting, no display needed
   to `ydotool`/`uinput` if you need Wayland.
 - What `window` matches: Windows = window title, X11 = `WM_NAME`, **macOS = the
   app name** (Accessibility API, not a title) — so use the app name there.
+- The tray needs a desktop backend on Linux (GTK/AppIndicator/Qt); elsewhere it
+  is native. `--tray` falls back to hotkeys-only if none is found.
 - Global hooks plus synthetic input can look like a keylogger to antivirus, and
   games may treat injected input as cheating.

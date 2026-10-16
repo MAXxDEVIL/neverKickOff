@@ -115,7 +115,8 @@ class Clicker:
 
 
 def main():
-    path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("config.json")
+    args = [arg for arg in sys.argv[1:] if arg != "--tray"]
+    path = Path(args[0]) if args else Path(__file__).with_name("config.json")
     config = json.loads(path.read_text())
     spec = dict(config["click"])
     if spec.get("action") == "keys":
@@ -130,6 +131,13 @@ def main():
     print(f"ready - {config['hotkeys']['toggle']} start/stop, "
           f"{config['hotkeys']['panic']} panic-stop")
     try:
+        if "--tray" in sys.argv:
+            try:
+                import tray
+                tray.run(clicker)
+                return
+            except Exception as exc:  # no tray backend (e.g. no GTK): keep working
+                print(f"tray unavailable ({exc}); running without it")
         listener.join()
     except KeyboardInterrupt:
         pass
