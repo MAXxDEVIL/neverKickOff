@@ -6,11 +6,15 @@ A tiny cross-platform auto clicker driven by a JSON config.
 
 ```sh
 pip install -r requirements.txt
+python gui.py               # window with hotkey capture, timing fields, profiles
+# or, config-driven:
 python main.py              # uses config.json
 python main.py my.json      # or your own config
 ```
 
-`Ctrl+Alt+S` starts and stops clicking; `Esc` panic-stops. Both are configurable.
+In the CLI, `Ctrl+Alt+S` starts and stops clicking; `Esc` panic-stops. Both are
+configurable. In the GUI, click a hotkey field and press the combination you want;
+`Start / Stop` or the toggle hotkey works from any window.
 
 ## Configure
 
@@ -51,7 +55,7 @@ accumulate drift.
 ## Test
 
 ```sh
-python test_engine.py   # timing loop, no display needed
+python test_engine.py   # timing loop + hotkey formatting, no display needed
 ```
 
 ## Platform notes

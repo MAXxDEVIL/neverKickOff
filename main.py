@@ -76,16 +76,21 @@ class Clicker:
         self._engine = None
         self._lock = threading.Lock()
 
+    def set_spec(self, spec):
+        self._spec = spec
+
     def toggle(self):
+        """Start clicking, or stop it if already running. Returns True when started."""
         with self._lock:
             if self._engine:
                 self._engine.stop()
                 self._engine = None
                 print("stopped")
-                return
+                return False
             engine = self._engine = Engine(self._device)
         print("running")
         threading.Thread(target=self._run, args=(engine,), daemon=True).start()
+        return True
 
     def _run(self, engine):
         fired = engine.run(self._spec)

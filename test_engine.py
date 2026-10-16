@@ -90,6 +90,25 @@ def test_parse_combo_order_and_errors():
         raise AssertionError("an unknown key must raise")
 
 
+def test_format_hotkey():
+    from hotkeys import format_hotkey
+    combos = {
+        ("s", 0x0004 | 0x0008): "<ctrl>+<alt>+s",
+        ("F6", 0): "<f6>",
+        ("Escape", 0): "<esc>",
+        ("S", 0x0001): "<shift>+s",
+    }
+    for (keysym, state), expected in combos.items():
+        assert format_hotkey(keysym, state) == expected, format_hotkey(keysym, state)
+    assert format_hotkey("Control_L", 0x0004) is None
+    try:
+        from pynput.keyboard import HotKey
+    except ImportError:
+        return  # pynput not installed; the string shape is untested against it
+    for combo in combos.values():
+        assert HotKey.parse(combo), combo  # pynput must accept what we generate
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
