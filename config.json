@@ -1,0 +1,17 @@
+{
+  "hotkeys": {
+    "toggle": "<ctrl>+<alt>+s",
+    "panic": "<esc>"
+  },
+  "click": {
+    "action": "mouse",
+    "button": "left",
+    "keys": "ctrl+c",
+
+    "interval": 0.1,
+    "initial_delay": 2.0,
+    "repeat": -1,
+    "jitter": 0.0,
+    "hold": 0.0
+  }
+}

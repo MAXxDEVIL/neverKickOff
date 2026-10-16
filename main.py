@@ -1,0 +1,129 @@
+"""neverKickOff - a small cross-platform auto clicker.
+
+    python main.py [config.json]
+
+Toggle clicking with the config's hotkeys.toggle combo (default Ctrl+Alt+S),
+panic-stop with hotkeys.panic (default Esc). See README.md.
+"""
+import json
+import sys
+import threading
+from pathlib import Path
+
+from pynput import keyboard, mouse
+
+from engine import Engine
+
+BUTTONS = {
+    "left": mouse.Button.left,
+    "right": mouse.Button.right,
+    "middle": mouse.Button.middle,
+}
+
+ALIASES = {
+    "control": "ctrl",
+    "escape": "esc",
+    "return": "enter",
+    "win": "cmd",
+    "super": "cmd",
+    "meta": "cmd",
+    "capslock": "caps_lock",
+    "pgup": "page_up",
+    "pgdn": "page_down",
+}
+
+
+def parse_combo(combo):
+    """'ctrl+alt+c' or ['ctrl', 'c'] -> [Key.ctrl, Key.alt, KeyCode('c')], in order."""
+    if isinstance(combo, str):
+        combo = combo.split("+")
+    keys = []
+    for part in combo:
+        name = ALIASES.get(part.strip().strip("<>").lower(), part.strip().strip("<>").lower())
+        if hasattr(keyboard.Key, name):
+            keys.append(getattr(keyboard.Key, name))
+        elif len(name) == 1:
+            keys.append(keyboard.KeyCode.from_char(name))
+        else:
+            raise KeyError(f"unknown key '{part}' in '{combo}'")
+    return keys
+
+
+class PynputDevice:
+    def __init__(self):
+        self._keyboard = keyboard.Controller()
+        self._mouse = mouse.Controller()
+
+    def mouse_press(self, button):
+        self._mouse.press(BUTTONS[button])
+
+    def mouse_release(self, button):
+        self._mouse.release(BUTTONS[button])
+
+    def key_press(self, key):
+        self._keyboard.press(key)
+
+    def key_release(self, key):
+        self._keyboard.release(key)
+
+
+class Clicker:
+    """Toggles one background Engine at a time."""
+
+    def __init__(self, device, spec):
+        self._device = device
+        self._spec = spec
+        self._engine = None
+        self._lock = threading.Lock()
+
+    def toggle(self):
+        with self._lock:
+            if self._engine:
+                self._engine.stop()
+                self._engine = None
+                print("stopped")
+                return
+            engine = self._engine = Engine(self._device)
+        print("running")
+        threading.Thread(target=self._run, args=(engine,), daemon=True).start()
+
+    def _run(self, engine):
+        fired = engine.run(self._spec)
+        with self._lock:
+            if self._engine is engine:
+                self._engine = None
+        print(f"done ({fired} ticks)")
+
+    def stop(self):
+        with self._lock:
+            if self._engine:
+                self._engine.stop()
+                self._engine = None
+                print("stopped")
+
+
+def main():
+    path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("config.json")
+    config = json.loads(path.read_text())
+    spec = dict(config["click"])
+    if spec.get("action") == "keys":
+        spec["keys"] = parse_combo(spec.get("keys", []))
+
+    clicker = Clicker(PynputDevice(), spec)
+    listener = keyboard.GlobalHotKeys({
+        config["hotkeys"]["toggle"]: clicker.toggle,
+        config["hotkeys"]["panic"]: clicker.stop,
+    })
+    listener.start()
+    print(f"ready - {config['hotkeys']['toggle']} start/stop, "
+          f"{config['hotkeys']['panic']} panic-stop")
+    try:
+        listener.join()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        clicker.stop()
+
+
+if __name__ == "__main__":
+    main()
