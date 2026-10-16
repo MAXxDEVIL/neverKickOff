@@ -31,6 +31,21 @@ class FakeDevice:
         self._do("key_release", key)
 
 
+class FlakyDevice(FakeDevice):
+    """Fails on the Nth key_press, to test cleanup of a half-pressed combo."""
+
+    def __init__(self, fail_on):
+        super().__init__()
+        self.fail_on = fail_on
+        self._presses = 0
+
+    def key_press(self, key):
+        self._presses += 1
+        if self._presses == self.fail_on:
+            raise RuntimeError("device failure")
+        super().key_press(key)
+
+
 def test_repeat_and_paired_releases():
     device = FakeDevice()
     fired = Engine(device).run(
@@ -195,6 +210,47 @@ def test_shipped_config_runs():
         return  # pynput not installed; the hotkey strings stay unvalidated
     for combo in config["hotkeys"].values():
         assert HotKey.parse(combo), combo
+
+
+def test_repeat_zero_fires_nothing():
+    device = FakeDevice()
+    fired = Engine(device).run({"action": "mouse", "button": "left",
+                                "interval": 0.01, "repeat": 0})
+    assert fired == 0, fired
+    assert device.events == [], device.events
+
+
+def test_partial_key_press_is_released():
+    device = FlakyDevice(fail_on=2)
+    engine = Engine(device)
+    try:
+        engine.run({"action": "keys", "keys": ["ctrl", "c"], "interval": 0.01, "repeat": 1})
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("the device error should propagate")
+    # ctrl went down before 'c' failed, so ctrl must come back up
+    assert [(e[1], e[2]) for e in device.events] == [("key_press", "ctrl"),
+                                                     ("key_release", "ctrl")], device.events
+
+
+def test_clicker_recovers_after_device_error():
+    try:
+        from main import Clicker
+    except ImportError:
+        return  # pynput not installed; skip
+    import contextlib
+    import io
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        device = FlakyDevice(fail_on=1)
+        clicker = Clicker(device, {"action": "keys", "keys": ["ctrl"], "interval": 0.01,
+                                   "repeat": -1, "window": ""})
+        assert clicker.toggle() is True
+        time.sleep(0.1)  # the run dies on the device error and must clear itself
+        assert clicker.toggle() is True, "engine error left the toggle wedged"
+        clicker.stop()
+        time.sleep(0.2)
 
 
 if __name__ == "__main__":

@@ -38,12 +38,11 @@ class Engine:
             wait = next_at - time.monotonic()
             if wait > 0 and self._stop.wait(wait):
                 break
-            title = (self._focused_window() or "").lower() if window else ""
-            if not window or window in title:
+            if not window or window in (self._focused_window() or "").lower():
+                if 0 <= repeat <= fired:  # repeat == 0 fires nothing
+                    break
                 self._fire(spec, hold)
                 fired += 1
-                if 0 <= repeat <= fired:
-                    break
             next_at += max(0.0, interval * (1 + random.uniform(-jitter, jitter)))
         return fired
 
@@ -51,12 +50,14 @@ class Engine:
         device = self._device
         if spec.get("action") == "keys":
             keys = spec.get("keys") or []
-            for key in keys:
-                device.key_press(key)
+            pressed = []
             try:
+                for key in keys:
+                    device.key_press(key)
+                    pressed.append(key)
                 self._stop.wait(hold)
             finally:
-                for key in reversed(keys):  # a stuck modifier is worse than a missed tick
+                for key in reversed(pressed):  # release only what actually went down
                     device.key_release(key)
         else:
             button = spec.get("button", "left")

@@ -95,10 +95,15 @@ class Clicker:
         return True
 
     def _run(self, engine):
-        fired = engine.run(self._spec)
-        with self._lock:
-            if self._engine is engine:
-                self._engine = None
+        fired = 0
+        try:
+            fired = engine.run(self._spec)
+        except Exception as exc:  # a dead engine must not leave the toggle wedged
+            print(f"stopped after error: {exc}")
+        finally:
+            with self._lock:
+                if self._engine is engine:
+                    self._engine = None
         print(f"done ({fired} ticks)")
 
     def stop(self):
@@ -130,6 +135,7 @@ def main():
         pass
     finally:
         clicker.stop()
+        listener.stop()
 
 
 if __name__ == "__main__":
