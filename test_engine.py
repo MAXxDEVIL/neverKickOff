@@ -359,6 +359,58 @@ def test_window_title_bytes_are_decoded():
     assert _as_text(b"\xc3\xa9") == "\u00e9"
 
 
+def test_ydotool_keycodes_match_linux_input_codes():
+    try:
+        import ydotool
+        from pynput.keyboard import Key, KeyCode
+    except ImportError:
+        return  # pynput or evdev not installed; skip
+    # numbers cross-checked against <linux/input-event-codes.h>
+    assert ydotool.keycode(Key.ctrl) == 29
+    assert ydotool.keycode(Key.enter) == 28
+    assert ydotool.keycode(Key.alt) == 56
+    assert ydotool.keycode(Key.f1) == 59
+    assert ydotool.keycode(Key.cmd) == 125
+    assert ydotool.keycode(KeyCode.from_char("c")) == 46
+    assert ydotool.keycode(KeyCode.from_char("1")) == 2
+    assert ydotool.keycode(KeyCode.from_char("-")) == 12
+    try:
+        ydotool.keycode(KeyCode.from_char("!"))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a key with no keycode must raise")
+
+
+def test_ydotool_emits_the_right_commands():
+    try:
+        import ydotool
+        from pynput.keyboard import Key, KeyCode
+    except ImportError:
+        return  # pynput or evdev not installed; skip
+    calls = []
+    device = ydotool.YdotoolDevice(run=lambda argv, check: calls.append(argv))
+    device.mouse_press("left")
+    device.mouse_release("left")
+    device.mouse_press("right")
+    device.mouse_release("middle")
+    device.key_press(Key.ctrl)
+    device.key_press(KeyCode.from_char("c"))
+    device.key_release(KeyCode.from_char("c"))
+    device.key_release(Key.ctrl)
+    assert calls == [
+        ["ydotool", "click", "0x40"],
+        ["ydotool", "click", "0x80"],
+        ["ydotool", "click", "0x41"],
+        ["ydotool", "click", "0x82"],
+        ["ydotool", "key", "29:1"],
+        ["ydotool", "key", "46:1"],
+        ["ydotool", "key", "46:0"],
+        ["ydotool", "key", "29:0"],
+    ], calls
+    assert isinstance(ydotool.available(), bool)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

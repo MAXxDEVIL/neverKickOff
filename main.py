@@ -14,6 +14,7 @@ from pynput import keyboard, mouse
 
 from engine import Engine
 import window
+import ydotool
 
 BUTTONS = {
     "left": mouse.Button.left,
@@ -84,6 +85,14 @@ class PynputDevice:
         self._keyboard.release(key)
 
 
+def make_device():
+    """ydotool on a Wayland session (pynput cannot inject there), else pynput."""
+    if ydotool.available():
+        print("input: ydotool (Wayland)")
+        return ydotool.YdotoolDevice()
+    return PynputDevice()
+
+
 class Clicker:
     """Toggles one background Engine at a time."""
 
@@ -136,7 +145,7 @@ def main():
     config = json.loads(path.read_text())
     spec = load_spec(config["click"])
 
-    clicker = Clicker(PynputDevice(), spec, focused_window=window.active_title)
+    clicker = Clicker(make_device(), spec, focused_window=window.active_title)
     listener = keyboard.GlobalHotKeys({
         config["hotkeys"]["toggle"]: clicker.toggle,
         config["hotkeys"]["panic"]: clicker.stop,

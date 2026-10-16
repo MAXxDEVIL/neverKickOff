@@ -63,9 +63,22 @@ Prints `all passed`. The tests need no display, so they pass over SSH or headles
   | Debian / Ubuntu | `sudo apt install python3-tk` |
   | Fedora | `sudo dnf install python3-tkinter` |
 
-  Global hooks require **X11**. On Wayland `pynput` cannot see global input, so
-  hotkeys and clicks do nothing — use an "X11"/"Xorg" session instead. The tray
-  needs a desktop backend (GTK/AppIndicator or Qt).
+  Global hooks require **X11**: on Wayland `pynput` cannot see or send global
+  input, so hotkeys and clicks silently do nothing. neverKickOff detects a
+  Wayland session and, when the `ydotool` binary is installed, injects through
+  it instead (that is what makes clicks work there):
+
+  ```sh
+  sudo pacman -S ydotool        # Arch / CachyOS
+  systemctl --user enable --now ydotool
+  ```
+
+  Start `ydotoold` the way your package ships it (Arch's package provides the
+  `ydotool` user service above; some distros use a system service). The app
+  prints `input: ydotool (Wayland)` when it picks it. Hotkeys still need X11 —
+  ydotool only fixes clicking and key injection, not global hotkey detection,
+  so on Wayland drive it from the GUI buttons. The tray needs a desktop backend
+  (GTK/AppIndicator or Qt).
 - `window` matching is per-OS: Windows = window title, X11 = `WM_NAME` or
   `_NET_WM_NAME`, **macOS = the app name** (Accessibility API, not a title) — use
   the app name. On a Wayland session titles come back empty for native Wayland
@@ -167,7 +180,8 @@ PyInstaller does not cross-compile: build on each OS you want to target.
 | `No module named pynput` | Activate the venv, then `pip install -r requirements.txt` |
 | `No module named tkinter`, or `libtk8.6.so: cannot open shared object file` | Install the tkinter package for your distro |
 | Hotkeys do nothing on macOS | Grant Accessibility **and** Input Monitoring |
-| Hotkeys do nothing on Linux | You are on Wayland; switch to an X11 session |
+| Hotkeys do nothing on Linux | You are on Wayland; install and run `ydotool` (see Platform specifics) and use the GUI buttons, since only X11 delivers global hotkeys |
+| Clicks do nothing on Linux | On Wayland ensure `ydotool` is installed and `ydotoold` is running, and that the app printed `input: ydotool (Wayland)` |
 | Hotkeys do nothing anywhere else | Another app owns that combination — change it in the config or GUI |
 | Clicks land in the wrong window | Set `window` to the title to watch for (app name on macOS); the check runs one tick before the click |
 | `--tray` says "tray unavailable" | `pip install -r requirements-tray.txt`, plus a desktop backend on Linux |

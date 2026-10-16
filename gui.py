@@ -14,7 +14,7 @@ from tkinter import filedialog, ttk
 from pynput import keyboard
 
 from hotkeys import format_hotkey
-from main import Clicker, PynputDevice, parse_combo
+from main import Clicker, make_device, parse_combo
 from window import active_title
 
 TIMING = [
@@ -77,7 +77,7 @@ class App:
         for var in self.step.values():
             var.trace_add("write", lambda *_: self._store_step())
 
-        self.clicker = Clicker(PynputDevice(), self._spec(), focused_window=active_title)
+        self.clicker = Clicker(make_device(), self._spec(), focused_window=active_title)
         self.listener = None
         self._build()
         self._refresh()
