@@ -331,7 +331,10 @@ class App:
     def close(self):
         self.clicker.stop()
         if self.listener:
-            self.listener.stop()
+            try:
+                self.listener.stop()
+            except Exception:  # pynput raises if stopped right after start
+                pass
         self.root.destroy()
 
 

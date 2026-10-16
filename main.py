@@ -157,7 +157,10 @@ def main():
         pass
     finally:
         clicker.stop()
-        listener.stop()
+        try:
+            listener.stop()
+        except Exception:  # pynput raises if stopped right after start
+            pass
 
 
 if __name__ == "__main__":
