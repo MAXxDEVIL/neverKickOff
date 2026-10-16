@@ -4,15 +4,16 @@
     "panic": "<esc>"
   },
   "click": {
-    "action": "mouse",
-    "button": "left",
-    "keys": "ctrl+c",
     "window": "",
 
     "interval": 0.1,
     "initial_delay": 2.0,
     "repeat": -1,
     "jitter": 0.0,
-    "hold": 0.0
+    "duration": 0.0,
+
+    "steps": [
+      { "action": "mouse", "button": "left", "count": 1, "hold": 0.0, "wait": 0.0 }
+    ]
   }
 }

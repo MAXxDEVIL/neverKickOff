@@ -104,34 +104,46 @@ Without them `--tray` prints a notice and runs without the tray.
     "panic": "<esc>"
   },
   "click": {
-    "action": "mouse",
-    "button": "left",
-    "keys": "ctrl+c",
     "window": "",
 
     "interval": 0.1,
     "initial_delay": 2.0,
     "repeat": -1,
     "jitter": 0.0,
-    "hold": 0.0
+    "duration": 0.0,
+
+    "steps": [
+      { "action": "keys",  "keys": "ctrl+c", "count": 3, "hold": 0.05, "wait": 0.2 },
+      { "action": "mouse", "button": "left",   "count": 1, "hold": 0.0,  "wait": 0.0 }
+    ]
   }
 }
 ```
 
+`steps` is the macro: every tick runs the steps **in order**, then waits
+`interval` before the next tick. Build it in the GUI's *Macro steps* list
+(Add / Remove / Up / Down), or write it by hand.
+
 | Field | Meaning |
 |---|---|
-| `action` | `mouse` clicks a button, `keys` presses a key combo each tick |
-| `button` | `left`, `right` or `middle` (mouse action) |
-| `keys` | combo pressed together each tick, e.g. `"ctrl+c"` or `["ctrl","c"]` (keys action) |
+| `steps[].action` | `mouse` clicks a button, `keys` presses a key combo |
+| `steps[].button` | `left`, `right` or `middle` (mouse step) |
+| `steps[].keys` | combo pressed together, e.g. `"ctrl+c"` or `["ctrl","c"]` (keys step) |
+| `steps[].count` | how many times that step's press repeats |
+| `steps[].hold` | seconds each press is held down before release |
+| `steps[].wait` | seconds to pause after the step, before the next one |
 | `window` | only tick while the focused window's title contains this text; empty = always |
 | `interval` | seconds between tick starts |
 | `initial_delay` | seconds before the first tick |
 | `repeat` | number of ticks, `-1` for until you stop it |
 | `jitter` | `0.0`–`1.0`, randomizes `interval` by ± this fraction |
-| `hold` | seconds to hold the button/combo before releasing |
+| `duration` | stop the whole run after this many seconds; `0` = no limit |
 
 The loop schedules each tick against a fixed deadline, so a slow tick does not
 accumulate drift.
+
+A config with no `steps` still works: its `action` / `button` / `keys` / `hold`
+are treated as a single step, so older profiles keep running.
 
 ## Build a standalone app (optional)
 

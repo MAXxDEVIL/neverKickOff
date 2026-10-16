@@ -269,6 +269,85 @@ def test_tray_is_optional():
         raise AssertionError("run() must ask for the tray deps when they are absent")
 
 
+def test_steps_run_in_order_each_tick():
+    device = FakeDevice()
+    fired = Engine(device).run({"interval": 0.01, "repeat": 2, "steps": [
+        {"action": "keys", "keys": ["ctrl", "c"], "count": 1, "hold": 0.0, "wait": 0.0},
+        {"action": "mouse", "button": "left", "count": 1, "hold": 0.0, "wait": 0.0},
+    ]})
+    assert fired == 2, fired
+    assert [e[1] for e in device.events] == [
+        "key_press", "key_press", "key_release", "key_release",
+        "mouse_press", "mouse_release"] * 2, device.events
+
+
+def test_step_count_presses_many_times():
+    device = FakeDevice()
+    Engine(device).run({"interval": 0.01, "repeat": 1, "steps": [
+        {"action": "mouse", "button": "left", "count": 3, "hold": 0.0, "wait": 0.0}]})
+    assert len([e for e in device.events if e[1] == "mouse_press"]) == 3, device.events
+
+
+def test_step_wait_delays_the_next_step():
+    device = FakeDevice()
+    Engine(device).run({"interval": 0.01, "repeat": 1, "steps": [
+        {"action": "mouse", "button": "left", "count": 1, "hold": 0.0, "wait": 0.05},
+        {"action": "mouse", "button": "right", "count": 1, "hold": 0.0, "wait": 0.0}]})
+    stamps = [e[0] for e in device.events if e[1] == "mouse_press"]
+    assert [e[2] for e in device.events if e[1] == "mouse_press"] == ["left", "right"]
+    assert stamps[1] - stamps[0] >= 0.04, stamps[1] - stamps[0]
+
+
+def test_duration_stops_the_run():
+    device = FakeDevice()
+    started = time.monotonic()
+    fired = Engine(device).run({"action": "mouse", "button": "left", "interval": 0.01,
+                                "repeat": -1, "duration": 0.1})
+    elapsed = time.monotonic() - started
+    assert fired > 0, fired
+    assert elapsed < 0.3, elapsed
+    assert fired == len([e for e in device.events if e[1] == "mouse_press"])
+
+
+def test_normalize_steps_wraps_a_flat_spec():
+    from engine import normalize_steps
+    steps = normalize_steps({"action": "keys", "keys": ["ctrl"], "hold": 0.5})
+    assert len(steps) == 1, steps
+    assert steps[0]["action"] == "keys" and steps[0]["keys"] == ["ctrl"], steps
+    assert steps[0]["hold"] == 0.5 and steps[0]["count"] == 1, steps
+    assert normalize_steps({"steps": [{"action": "mouse"}]})[0]["action"] == "mouse"
+
+
+def test_load_spec_parses_step_combos():
+    try:
+        from main import load_spec
+    except ImportError:
+        return  # pynput not installed; skip
+    spec = load_spec({"steps": [{"action": "keys", "keys": "ctrl+c"},
+                                {"action": "mouse", "button": "left"}]})
+    assert [str(k) for k in spec["steps"][0]["keys"]] == ["Key.ctrl", "'c'"]
+    assert spec["steps"][1]["button"] == "left"
+    assert len(load_spec({"action": "keys", "keys": "ctrl+c"})["keys"]) == 2
+
+
+def test_gui_step_conversion():
+    try:
+        import gui
+    except ImportError:
+        return  # tkinter or pynput not installed; skip
+    # a legacy flat click becomes a single step, holding the old key/hold
+    steps = gui._step_from_click({"action": "keys", "keys": "ctrl+c", "hold": 0.3})
+    assert len(steps) == 1, steps
+    assert steps[0]["action"] == "keys" and steps[0]["keys"] == "ctrl+c", steps
+    assert steps[0]["hold"] == "0.3" and steps[0]["count"] == "1", steps
+    # an explicit macro is kept, and list keys are joined back into a combo
+    steps = gui._step_from_click({"steps": [
+        {"action": "keys", "keys": ["ctrl", "c"], "count": 2, "hold": 0.1, "wait": 0.2},
+        {"action": "mouse", "button": "right", "count": 1, "hold": 0, "wait": 0}]})
+    assert steps[0]["keys"] == "ctrl+c" and steps[0]["count"] == "2", steps
+    assert steps[0]["wait"] == "0.2" and steps[1]["button"] == "right", steps
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

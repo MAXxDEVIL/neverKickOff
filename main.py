@@ -50,6 +50,22 @@ def parse_combo(combo):
     return keys
 
 
+def load_spec(click):
+    """Copy a config's click spec, parsing every key combo into pynput keys."""
+    spec = dict(click)
+    if spec.get("steps"):
+        steps = []
+        for step in spec["steps"]:
+            step = dict(step)
+            if step.get("action") == "keys":
+                step["keys"] = parse_combo(step.get("keys", []))
+            steps.append(step)
+        spec["steps"] = steps
+    elif spec.get("action") == "keys":
+        spec["keys"] = parse_combo(spec.get("keys", []))
+    return spec
+
+
 class PynputDevice:
     def __init__(self):
         self._keyboard = keyboard.Controller()
@@ -118,9 +134,7 @@ def main():
     args = [arg for arg in sys.argv[1:] if arg != "--tray"]
     path = Path(args[0]) if args else Path(__file__).with_name("config.json")
     config = json.loads(path.read_text())
-    spec = dict(config["click"])
-    if spec.get("action") == "keys":
-        spec["keys"] = parse_combo(spec.get("keys", []))
+    spec = load_spec(config["click"])
 
     clicker = Clicker(PynputDevice(), spec, focused_window=window.active_title)
     listener = keyboard.GlobalHotKeys({
