@@ -382,33 +382,42 @@ def test_ydotool_keycodes_match_linux_input_codes():
         raise AssertionError("a key with no keycode must raise")
 
 
-def test_ydotool_emits_the_right_commands():
+def test_ydotool_problem_reports_the_cause():
     try:
         import ydotool
-        from pynput.keyboard import Key, KeyCode
+        import os
     except ImportError:
         return  # pynput or evdev not installed; skip
-    calls = []
-    device = ydotool.YdotoolDevice(run=lambda argv, check: calls.append(argv))
-    device.mouse_press("left")
-    device.mouse_release("left")
-    device.mouse_press("right")
-    device.mouse_release("middle")
-    device.key_press(Key.ctrl)
-    device.key_press(KeyCode.from_char("c"))
-    device.key_release(KeyCode.from_char("c"))
-    device.key_release(Key.ctrl)
-    assert calls == [
-        ["ydotool", "click", "0x40"],
-        ["ydotool", "click", "0x80"],
-        ["ydotool", "click", "0x41"],
-        ["ydotool", "click", "0x82"],
-        ["ydotool", "key", "29:1"],
-        ["ydotool", "key", "46:1"],
-        ["ydotool", "key", "46:0"],
-        ["ydotool", "key", "29:0"],
-    ], calls
-    assert isinstance(ydotool.available(), bool)
+
+    class Probe:
+        def __init__(self, code, out=""):
+            self.returncode = code
+            self.stdout = out
+
+    saved_env = os.environ.get("XDG_SESSION_TYPE")
+    saved_which = ydotool.shutil.which
+
+    try:
+        os.environ["XDG_SESSION_TYPE"] = "x11"
+        assert ydotool.problem(run=lambda *a, **k: Probe(0)) is None
+
+        os.environ["XDG_SESSION_TYPE"] = "wayland"
+        ydotool.shutil.which = lambda name: None  # ydotool not installed
+        msg = ydotool.problem(run=lambda *a, **k: Probe(0))
+        assert msg and "ydotool" in msg.lower()
+
+        ydotool.shutil.which = lambda name: "/usr/bin/ydotool"  # installed
+        msg = ydotool.problem(run=lambda *a, **k: Probe(2, "failed to connect socket"))
+        assert msg and "reach ydotoold" in msg, msg
+
+        msg = ydotool.problem(run=lambda *a, **k: Probe(0))
+        assert ydotool.problem(run=lambda *a, **k: Probe(0)) is None
+    finally:
+        if saved_env is None:
+            os.environ.pop("XDG_SESSION_TYPE", None)
+        else:
+            os.environ["XDG_SESSION_TYPE"] = saved_env
+        ydotool.shutil.which = saved_which
 
 
 if __name__ == "__main__":

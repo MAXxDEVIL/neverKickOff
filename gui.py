@@ -6,6 +6,7 @@ Reuses the same Clicker, device and config shape as the CLI in main.py.
 The click spec is a macro: a list of steps run in order every tick.
 """
 import json
+import os
 import sys
 from pathlib import Path
 import tkinter as tk
@@ -16,7 +17,7 @@ from pynput import keyboard
 from hotkeys import format_hotkey
 from main import Clicker, make_device, parse_combo
 from window import active_title
-from ydotool import input_will_be_ignored
+from ydotool import problem
 
 TIMING = [
     ("Interval (s)", "interval"),
@@ -233,7 +234,9 @@ class App:
                 self.panic_key.get(): self._hotkey_stop,
             })
             self.listener.start()
-            self.status.set(f"{self.toggle_key.get()} start/stop, {self.panic_key.get()} stop")
+            warn = (" (global hotkeys may not fire on Wayland - use the buttons)"
+                    if os.environ.get("XDG_SESSION_TYPE") == "wayland" else "")
+            self.status.set(f"{self.toggle_key.get()} start/stop, {self.panic_key.get()} stop{warn}")
         except Exception as exc:
             self.status.set(f"hotkey error: {exc}")
 
@@ -253,12 +256,15 @@ class App:
             return
         self.clicker.set_spec(spec)
         started = self.clicker.toggle()
-        if started and input_will_be_ignored():
-            self.status.set("running - Wayland session: install and start ydotool "
-                            "or clicks and keys do nothing (see README)")
-        elif started and spec["window"] and active_title() is None:
-            self.status.set("running - focused window title unreadable, so a "
-                            "window filter can never match (Wayland?)")
+        issue = problem() if started else None
+        if issue:
+            self.status.set(f"running, but input will not be sent: {issue}")
+        elif started and spec["window"] and os.environ.get("XDG_SESSION_TYPE") == "wayland":
+            # X11 title queries cannot see native Wayland windows, so this filter
+            # matches XWayland apps only. Running is still right (the engine keeps
+            # re-reading the title); refusing would break that, so say so instead.
+            self.status.set("running - window filter matches XWayland apps only on "
+                            "Wayland (clear it to click everywhere)")
         else:
             self.status.set("running" if started else "stopped")
 

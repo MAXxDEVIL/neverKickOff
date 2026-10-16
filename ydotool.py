@@ -6,7 +6,8 @@ injects at the kernel level through /dev/uinput, which the compositor does
 honour. It needs the `ydotool` binary and its `ydotoold` daemon running; see
 the Wayland section of README.md.
 
-main.make_device() picks this only on a Wayland session, where pynput cannot work.
+main.make_device() prefers it on any session that is not X11, where pynput
+cannot inject at all.
 """
 import os
 import shutil
@@ -44,17 +45,32 @@ SYMBOLS = {
 
 
 def available():
-    """True when ydotool is installed and this looks like a Wayland session."""
-    return bool(shutil.which("ydotool")) and os.environ.get("XDG_SESSION_TYPE") == "wayland"
+    """True when this session should inject through ydotool rather than pynput.
 
-
-def input_will_be_ignored():
-    """True when this session swallows pynput's input and ydotool is missing.
-
-    A Wayland compositor ignores X11/XWayland synthetic events, so without
-    ydotool every click and keypress is silently dropped.
+    Not tied to Wayland: it is simply "ydotool is installed and we are not on
+    X11", so a session that never set XDG_SESSION_TYPE still works. ydotool
+    also runs on X11, but pynput is lighter there, so X11 keeps pynput.
     """
-    return os.environ.get("XDG_SESSION_TYPE") == "wayland" and not available()
+    return bool(shutil.which("ydotool")) and os.environ.get("XDG_SESSION_TYPE") != "x11"
+
+
+def problem(run=subprocess.run):
+    """Why injected input will not arrive, or None when it will.
+
+    On X11 pynput always works. Everywhere else we need ydotool, and its daemon
+    must be reachable: `ydotool debug` connects to the socket and injects
+    nothing, so a non-zero exit means ydotoold is not running.
+    """
+    if not available():
+        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+            return ("Wayland ignores pynput's input: install ydotool and start "
+                    "ydotoold (see the Wayland section of README.md)")
+        return None
+    probe = run(["ydotool", "debug"], capture_output=True, text=True)
+    if probe.returncode:
+        lines = (probe.stdout or "").strip().splitlines()
+        return f"ydotool cannot reach ydotoold ({lines[0] if lines else 'no response'})"
+    return None
 
 
 def keycode(key):

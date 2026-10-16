@@ -139,6 +139,9 @@ class Clicker:
                 print("stopped")
 
 
+import ydotool
+
+
 def main():
     args = [arg for arg in sys.argv[1:] if arg != "--tray"]
     path = Path(args[0]) if args else Path(__file__).with_name("config.json")
@@ -146,6 +149,9 @@ def main():
     spec = load_spec(config["click"])
 
     clicker = Clicker(make_device(), spec, focused_window=window.active_title)
+    issue = ydotool.problem()
+    if issue:
+        print(f"warning: {issue}")
     listener = keyboard.GlobalHotKeys({
         config["hotkeys"]["toggle"]: clicker.toggle,
         config["hotkeys"]["panic"]: clicker.stop,

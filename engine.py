@@ -38,7 +38,7 @@ class Engine:
 
     def run(self, spec):
         """Fire macro ticks until repeat, duration or stop() ends it. Returns ticks fired."""
-        interval = max(0.0, float(spec["interval"]))
+        interval = max(0.0, float(spec.get("interval", 0.1)))
         jitter = max(0.0, float(spec.get("jitter", 0.0)))
         repeat = int(spec.get("repeat", -1))
         duration = max(0.0, float(spec.get("duration", 0.0)))
