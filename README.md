@@ -48,6 +48,7 @@ configurable. In the GUI, click a hotkey field and press the combination you wan
 | `repeat` | number of ticks, `-1` for until you stop it |
 | `jitter` | `0.0`–`1.0`, randomizes `interval` by ± this fraction |
 | `hold` | seconds to hold the button/combo before releasing |
+| `window` | only tick while the focused window's title contains this text; empty = always |
 
 The loop schedules each tick against a fixed deadline, so a slow tick does not
 accumulate drift.
@@ -64,5 +65,7 @@ python test_engine.py   # timing loop + hotkey formatting, no display needed
   Input Monitoring permission on first run.
 - **Linux**: needs X11. Wayland has no global input hook — `shortcut:` fall back
   to `ydotool`/`uinput` if you need Wayland.
+- What `window` matches: Windows = window title, X11 = `WM_NAME`, **macOS = the
+  app name** (Accessibility API, not a title) — so use the app name there.
 - Global hooks plus synthetic input can look like a keylogger to antivirus, and
   games may treat injected input as cheating.

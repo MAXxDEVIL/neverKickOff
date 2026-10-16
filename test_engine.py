@@ -109,6 +109,35 @@ def test_format_hotkey():
         assert HotKey.parse(combo), combo  # pynput must accept what we generate
 
 
+def test_window_filter():
+    # matching window: fires the clicks
+    device = FakeDevice()
+    fired = Engine(device, focused_window=lambda: "notes.txt - Notepad").run(
+        {"action": "mouse", "interval": 0.01, "repeat": 3, "window": "notepad"})
+    assert fired == 3, fired
+    assert len([e for e in device.events if e[1] == "mouse_press"]) == 3
+
+    # non-matching and unknown focused window: never clicks, so `repeat` is never
+    # reached -> the loop waits for a stop instead of returning on its own.
+    for answer in ("Browser", None):
+        device = FakeDevice()
+        engine = Engine(device, focused_window=lambda: answer)
+        thread = threading.Thread(target=engine.run, args=({"action": "mouse", "interval": 0.01,
+                                                            "repeat": 3, "window": "notepad"},))
+        thread.start()
+        time.sleep(0.05)
+        engine.stop()
+        thread.join(2)
+        assert not thread.is_alive(), answer
+        assert device.events == [], (answer, device.events)
+
+
+def test_active_title_never_raises():
+    from window import active_title
+    # headless/no DISPLAY here: must swallow the failure and return None
+    assert active_title() is None or isinstance(active_title(), str)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

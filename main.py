@@ -13,6 +13,7 @@ from pathlib import Path
 from pynput import keyboard, mouse
 
 from engine import Engine
+import window
 
 BUTTONS = {
     "left": mouse.Button.left,
@@ -70,9 +71,10 @@ class PynputDevice:
 class Clicker:
     """Toggles one background Engine at a time."""
 
-    def __init__(self, device, spec):
+    def __init__(self, device, spec, focused_window=None):
         self._device = device
         self._spec = spec
+        self._focused_window = focused_window
         self._engine = None
         self._lock = threading.Lock()
 
@@ -87,7 +89,7 @@ class Clicker:
                 self._engine = None
                 print("stopped")
                 return False
-            engine = self._engine = Engine(self._device)
+            engine = self._engine = Engine(self._device, self._focused_window)
         print("running")
         threading.Thread(target=self._run, args=(engine,), daemon=True).start()
         return True
@@ -114,7 +116,7 @@ def main():
     if spec.get("action") == "keys":
         spec["keys"] = parse_combo(spec.get("keys", []))
 
-    clicker = Clicker(PynputDevice(), spec)
+    clicker = Clicker(PynputDevice(), spec, focused_window=window.active_title)
     listener = keyboard.GlobalHotKeys({
         config["hotkeys"]["toggle"]: clicker.toggle,
         config["hotkeys"]["panic"]: clicker.stop,

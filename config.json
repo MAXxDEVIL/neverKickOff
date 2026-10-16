@@ -7,6 +7,7 @@
     "action": "mouse",
     "button": "left",
     "keys": "ctrl+c",
+    "window": "",
 
     "interval": 0.1,
     "initial_delay": 2.0,

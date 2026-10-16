@@ -10,8 +10,9 @@ import time
 
 
 class Engine:
-    def __init__(self, device):
+    def __init__(self, device, focused_window=None):
         self._device = device
+        self._focused_window = focused_window or (lambda: None)
         self._stop = threading.Event()
 
     def stop(self):
@@ -24,6 +25,7 @@ class Engine:
         jitter = max(0.0, float(spec.get("jitter", 0.0)))
         hold = max(0.0, float(spec.get("hold", 0.0)))
         repeat = int(spec.get("repeat", -1))
+        window = str(spec.get("window", "")).lower()
 
         if self._stop.wait(float(spec.get("initial_delay", 0.0))):
             return 0
@@ -36,10 +38,12 @@ class Engine:
             wait = next_at - time.monotonic()
             if wait > 0 and self._stop.wait(wait):
                 break
-            self._fire(spec, hold)
-            fired += 1
-            if 0 <= repeat <= fired:
-                break
+            title = (self._focused_window() or "").lower() if window else ""
+            if not window or window in title:
+                self._fire(spec, hold)
+                fired += 1
+                if 0 <= repeat <= fired:
+                    break
             next_at += max(0.0, interval * (1 + random.uniform(-jitter, jitter)))
         return fired
 

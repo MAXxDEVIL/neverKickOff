@@ -14,6 +14,7 @@ from pynput import keyboard
 
 from hotkeys import format_hotkey
 from main import Clicker, PynputDevice, parse_combo
+from window import active_title
 
 FIELDS = [
     ("Interval (s)", "interval"),
@@ -42,12 +43,13 @@ class App:
         self.button = tk.StringVar(value=click.get("button", "left"))
         keys = click.get("keys", "")
         self.keys = tk.StringVar(value="+".join(keys) if isinstance(keys, list) else keys)
+        self.window = tk.StringVar(value=click.get("window", ""))
         self.toggle_key = tk.StringVar(value=hot["toggle"])
         self.panic_key = tk.StringVar(value=hot["panic"])
         self.values = {name: tk.StringVar(value=str(click.get(name, 0))) for _, name in FIELDS}
         self.status = tk.StringVar(value="ready")
 
-        self.clicker = Clicker(PynputDevice(), self._spec())
+        self.clicker = Clicker(PynputDevice(), self._spec(), focused_window=active_title)
         self.listener = None
         self._build()
         self._register_hotkeys()
@@ -61,6 +63,8 @@ class App:
         row = self._row(row, "Action", self._radios(self.action, ["mouse", "keys"]))
         row = self._row(row, "Button", self._radios(self.button, ["left", "right", "middle"]))
         row = self._row(row, "Keys (keys action)", ttk.Entry(self.root, textvariable=self.keys))
+        row = self._row(row, "Only click in window",
+                        ttk.Entry(self.root, textvariable=self.window))
         for label, name in FIELDS:
             row = self._row(row, label, ttk.Entry(self.root, textvariable=self.values[name]))
         buttons = ttk.Frame(self.root)
@@ -129,7 +133,8 @@ class App:
         self.status.set("stopped")
 
     def _spec(self):
-        spec = {"action": self.action.get(), "button": self.button.get(), "keys": []}
+        spec = {"action": self.action.get(), "button": self.button.get(), "keys": [],
+                "window": self.window.get().strip()}
         for _, name in FIELDS:
             spec[name] = _number(self.values[name].get())  # raises on bad input, caught in toggle()
         if spec["action"] == "keys":
@@ -137,7 +142,8 @@ class App:
         return spec
 
     def _config(self):
-        click = {"action": self.action.get(), "button": self.button.get(), "keys": self.keys.get()}
+        click = {"action": self.action.get(), "button": self.button.get(),
+                 "keys": self.keys.get(), "window": self.window.get().strip()}
         for _, name in FIELDS:
             click[name] = _number(self.values[name].get())
         return {"hotkeys": {"toggle": self.toggle_key.get(), "panic": self.panic_key.get()},
@@ -147,6 +153,7 @@ class App:
         click = config.get("click", {})
         self.action.set(click.get("action", "mouse"))
         self.button.set(click.get("button", "left"))
+        self.window.set(click.get("window", ""))
         keys = click.get("keys", "")
         self.keys.set("+".join(keys) if isinstance(keys, list) else keys)
         for _, name in FIELDS:
