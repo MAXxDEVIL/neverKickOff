@@ -16,14 +16,16 @@ system, a GUI, and click-only-while-a-window-is-focused. Driven by a JSON config
 ### Install
 
 ```sh
-git clone <your-repo-url> neverKickOff
+git clone https://github.com/MAXxDEVIL/neverKickOff.git
 cd neverKickOff
 
-python -m venv .venv             # optional, but keeps pynput out of system Python
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python -m venv .venv            
+source .venv/bin/activate       
 
 pip install -r requirements.txt  # the only required dependency is pynput
 ```
+ on Windows: .venv\Scripts\activate
+  optional, but keeps pynput out of system Pyth
 
 ### Verify
 
