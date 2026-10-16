@@ -16,6 +16,7 @@ from pynput import keyboard
 from hotkeys import format_hotkey
 from main import Clicker, make_device, parse_combo
 from window import active_title
+from ydotool import input_will_be_ignored
 
 TIMING = [
     ("Interval (s)", "interval"),
@@ -252,7 +253,10 @@ class App:
             return
         self.clicker.set_spec(spec)
         started = self.clicker.toggle()
-        if started and spec["window"] and active_title() is None:
+        if started and input_will_be_ignored():
+            self.status.set("running - Wayland session: install and start ydotool "
+                            "or clicks and keys do nothing (see README)")
+        elif started and spec["window"] and active_title() is None:
             self.status.set("running - focused window title unreadable, so a "
                             "window filter can never match (Wayland?)")
         else:

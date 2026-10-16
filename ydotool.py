@@ -48,6 +48,15 @@ def available():
     return bool(shutil.which("ydotool")) and os.environ.get("XDG_SESSION_TYPE") == "wayland"
 
 
+def input_will_be_ignored():
+    """True when this session swallows pynput's input and ydotool is missing.
+
+    A Wayland compositor ignores X11/XWayland synthetic events, so without
+    ydotool every click and keypress is silently dropped.
+    """
+    return os.environ.get("XDG_SESSION_TYPE") == "wayland" and not available()
+
+
 def keycode(key):
     """pynput Key/KeyCode -> a Linux input-event keycode (evdev's KEY_*)."""
     from evdev import ecodes
