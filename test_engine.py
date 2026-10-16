@@ -348,6 +348,17 @@ def test_gui_step_conversion():
     assert steps[0]["wait"] == "0.2" and steps[1]["button"] == "right", steps
 
 
+def test_window_title_bytes_are_decoded():
+    from window import _as_text
+    # python-xlib returns bytes for some windows; a bytes title would make the
+    # engine's `str in title.lower()` raise, so it must come back as str.
+    assert _as_text(b"VRStream") == "VRStream"
+    assert _as_text("Notepad") == "Notepad"
+    assert _as_text(b"") is None
+    assert _as_text(None) is None
+    assert _as_text(b"\xc3\xa9") == "\u00e9"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

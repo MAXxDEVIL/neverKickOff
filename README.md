@@ -66,8 +66,10 @@ Prints `all passed`. The tests need no display, so they pass over SSH or headles
   Global hooks require **X11**. On Wayland `pynput` cannot see global input, so
   hotkeys and clicks do nothing — use an "X11"/"Xorg" session instead. The tray
   needs a desktop backend (GTK/AppIndicator or Qt).
-- `window` matching is per-OS: Windows = window title, X11 = `WM_NAME`,
-  **macOS = the app name** (Accessibility API, not a title) — use the app name.
+- `window` matching is per-OS: Windows = window title, X11 = `WM_NAME` or
+  `_NET_WM_NAME`, **macOS = the app name** (Accessibility API, not a title) — use
+  the app name. On a Wayland session titles come back empty for native Wayland
+  apps, so a `window` filter can never match there; the GUI says so when you start.
 - Global hooks plus synthetic input can look like a keylogger to antivirus, and
   some games treat injected input as cheating — check their rules first.
 

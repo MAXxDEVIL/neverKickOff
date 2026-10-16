@@ -246,11 +246,17 @@ class App:
 
     def toggle(self):
         try:
-            self.clicker.set_spec(self._spec())
+            spec = self._spec()
         except Exception as exc:
             self.status.set(f"bad setting: {exc}")
             return
-        self.status.set("running" if self.clicker.toggle() else "stopped")
+        self.clicker.set_spec(spec)
+        started = self.clicker.toggle()
+        if started and spec["window"] and active_title() is None:
+            self.status.set("running - focused window title unreadable, so a "
+                            "window filter can never match (Wayland?)")
+        else:
+            self.status.set("running" if started else "stopped")
 
     def stop(self):
         self.clicker.stop()

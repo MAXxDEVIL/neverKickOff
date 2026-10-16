@@ -41,6 +41,38 @@ def _x11():
     if _x11_display is None:
         from Xlib import display
         _x11_display = display.Display()
-    # shortcut: input focus's WM_NAME only; some apps set _NET_WM_NAME (UTF-8)
-    # instead. Upgrade to read _NET_WM_NAME if titles come back empty.
-    return _x11_display.get_input_focus().focus.get_wm_name() or None
+    d = _x11_display
+    for window in (d.get_input_focus().focus, _active_window(d)):
+        if window is None:
+            continue
+        try:
+            title = _title(d, window)
+        except Exception:
+            continue
+        if title:
+            return title
+    return None
+
+
+def _active_window(d):
+    """The window the WM reports as active (_NET_ACTIVE_WINDOW), if it reports one."""
+    prop = d.screen().root.get_full_property(d.intern_atom("_NET_ACTIVE_WINDOW"), 0)
+    if prop and len(prop.value) and prop.value[0]:
+        return d.create_resource_object("window", prop.value[0])
+    return None
+
+
+def _title(d, window):
+    """WM_NAME, else the UTF-8 _NET_WM_NAME that GTK/Chromium apps set instead."""
+    name = _as_text(window.get_wm_name())
+    if name:
+        return name
+    prop = window.get_full_property(d.intern_atom("_NET_WM_NAME"), 0)
+    return _as_text(prop.value if prop else None)
+
+
+def _as_text(value):
+    """python-xlib hands back bytes for some windows; the engine compares str."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace") or None
+    return value or None
