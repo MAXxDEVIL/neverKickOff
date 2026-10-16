@@ -19,13 +19,23 @@ system, a GUI, and click-only-while-a-window-is-focused. Driven by a JSON config
 git clone https://github.com/MAXxDEVIL/neverKickOff.git
 cd neverKickOff
 
-python -m venv .venv            
-source .venv/bin/activate       
-
-pip install -r requirements.txt  # the only required dependency is pynput
+python -m venv .venv
 ```
- on Windows: .venv\Scripts\activate
-  optional, but keeps pynput out of system Pyth
+
+Activate it with the line for **your** shell - each shell has its own script:
+
+```sh
+source .venv/bin/activate            # bash / zsh
+source .venv/bin/activate.fish       # fish
+.venv\Scripts\activate               # Windows, cmd
+.venv\Scripts\Activate.ps1           # Windows, PowerShell
+```
+
+Then install:
+
+```sh
+pip install -r requirements.txt      # the only required dependency is pynput
+```
 
 ### Verify
 
@@ -139,6 +149,7 @@ PyInstaller does not cross-compile: build on each OS you want to target.
 
 | Symptom | Fix |
 |---|---|
+| fish: `'case' builtin not inside of switch block` when activating | Use `source .venv/bin/activate.fish`, not `activate` |
 | `No module named pynput` | Activate the venv, then `pip install -r requirements.txt` |
 | `No module named tkinter`, or `libtk8.6.so: cannot open shared object file` | Install the tkinter package for your distro |
 | Hotkeys do nothing on macOS | Grant Accessibility **and** Input Monitoring |
