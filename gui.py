@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, font as tkfont, ttk
+from tkinter import filedialog, font as tkfont, messagebox, simpledialog, ttk
 
 from pynput import keyboard
 
@@ -95,6 +95,29 @@ def _kind(step):
     return "combo" if len([k for k in step["keys"].split("+") if k.strip()]) > 1 else "key"
 
 
+def _config_dir():
+    """Per-user config folder: APPDATA on Windows, Application Support on macOS."""
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    return base / "neverKickOff"
+
+
+def _profiles_dir():
+    return _config_dir() / "profiles"
+
+
+def _profile_name(name):
+    """A filename stem we are willing to write, or None for anything unsafe."""
+    name = name.strip()
+    if not name or name in (".", "..") or any(char in name for char in "/\\"):
+        return None
+    return name
+
+
 class _Tooltip:
     """Hover help: one undecorated toplevel per widget, shown on <Enter>."""
 
@@ -123,7 +146,7 @@ class _Tooltip:
 
 
 class App:
-    def __init__(self, root, config):
+    def __init__(self, root, config, use_profiles=True):
         self.root = root
         root.title("neverKickOff")
         self.bg = _theme(ttk.Style(root))
@@ -136,6 +159,9 @@ class App:
         self.timing = {name: tk.StringVar(value=str(click.get(name, 0))) for _, name in TIMING}
         self.status = tk.StringVar(value="ready")
         self.error = tk.StringVar()
+        self.profile = tk.StringVar()      # what the dropdown shows
+        self._loaded = ""                  # what is actually loaded (differs on switching)
+        self._snapshot = ""                # last saved/loaded spec, for the unsaved-changes check
 
         self.steps = _step_from_click(click)
         self.index = 0
@@ -157,6 +183,14 @@ class App:
         self._select(0)
         self._sync_run()
         self._register_hotkeys()
+
+        # Profiles live outside the app folder, so nothing is written next to the
+        # script. The passed config seeds 'default' on first run only.
+        if use_profiles:
+            self._open_startup_profile(config)
+        else:
+            self._snapshot = json.dumps(self._config(), sort_keys=True)
+            self._refresh_profiles()
 
         root.minsize(780, 560)
         root.update_idletasks()
@@ -203,8 +237,14 @@ class App:
         bar.columnconfigure(0, weight=1)
         left = ttk.Frame(bar)
         left.grid(row=0, column=0, sticky="w")
-        ttk.Button(left, text="Save profile", command=self.save).pack(side="left")
-        ttk.Button(left, text="Load profile", command=self.load).pack(side="left", padx=(6, 0))
+        ttk.Label(left, text="Profile:").pack(side="left", padx=(0, 6))
+        self.profile_box = ttk.Combobox(left, textvariable=self.profile, state="readonly",
+                                        width=18, values=[])
+        self.profile_box.pack(side="left")
+        self.profile_box.bind("<<ComboboxSelected>>", lambda _event: self._switch_profile())
+        for text, command in (("Save", self.save), ("Save as\u2026", self.save_as),
+                              ("Delete", self.delete), ("Import\u2026", self.load)):
+            ttk.Button(left, text=text, command=command).pack(side="left", padx=(6, 0))
         ttk.Label(bar, textvariable=self.error, style="Error.TLabel", wraplength=620,
                   justify="left").grid(row=1, column=0, sticky="w", pady=(6, 0))
 
@@ -507,7 +547,10 @@ class App:
 
     def _register_hotkeys(self):
         if self.listener:
-            self.listener.stop()
+            try:
+                self.listener.stop()  # pynput raises if stopped right after start
+            except Exception:
+                pass
             self.listener = None
         try:
             self.listener = keyboard.GlobalHotKeys({
@@ -623,29 +666,186 @@ class App:
         self.error.set("")
         self.status.set("profile loaded")
 
+    # --- profiles -----------------------------------------------------------
+
+    def _profile_path(self, name):
+        return _profiles_dir() / f"{name}.json"
+
+    def _profile_names(self):
+        try:
+            return sorted(p.stem for p in _profiles_dir().glob("*.json"))
+        except OSError:
+            return []
+
+    def _refresh_profiles(self):
+        names = self._profile_names()
+        self.profile_box.configure(values=names)
+        if self.profile.get() not in names:
+            self.profile.set(names[0] if names else "")
+
+    def _dirty(self):
+        try:
+            return json.dumps(self._config(), sort_keys=True) != self._snapshot
+        except Exception:
+            return True  # a half-typed number counts as unsaved
+
+    def _remember(self, name):
+        try:
+            _profiles_dir().joinpath(".last").write_text(name)
+        except OSError:
+            pass
+
+    def _write_profile(self, name, config=None):
+        try:
+            folder = _profiles_dir()
+            folder.mkdir(parents=True, exist_ok=True)
+            self._profile_path(name).write_text(
+                json.dumps(config if config is not None else self._config(), indent=2))
+        except Exception as exc:
+            self._fail(f"could not save '{name}': {exc}")
+            return False
+        self.error.set("")
+        self._snapshot = json.dumps(self._config(), sort_keys=True)
+        return True
+
+    def _load_profile(self, name):
+        try:
+            config = json.loads(self._profile_path(name).read_text())
+        except Exception as exc:
+            self._fail(f"bad profile '{name}': {exc}")
+            return False
+        self._apply(config)
+        self._loaded = name
+        self.profile.set(name)
+        self._snapshot = json.dumps(self._config(), sort_keys=True)
+        self._remember(name)
+        self.status.set(f"profile '{name}'")
+        self._refresh_profiles()
+        return True
+
+    def _open_startup_profile(self, config):
+        """Seed the folder on first run, then reopen the last profile used."""
+        try:
+            folder = _profiles_dir()
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._fail(f"no profile folder: {exc}")
+            self._snapshot = json.dumps(self._config(), sort_keys=True)
+            return
+        if not self._profile_names():
+            self._write_profile("default", config)
+        try:
+            last = folder.joinpath(".last").read_text().strip()
+        except OSError:
+            last = ""
+        name = last if last in self._profile_names() else "default"
+        if not self._load_profile(name):
+            self._refresh_profiles()
+
+    def _confirm_discard(self):
+        """True when it is safe to lose the current edits; offers to save them."""
+        if not self._dirty():
+            return True
+        name = self._loaded or "default"
+        answer = messagebox.askyesnocancel("neverKickOff",
+                                           f"Save changes to \"{name}\" before switching?")
+        if answer is None:
+            return False
+        if answer and not self._write_profile(name):
+            return False
+        if answer:
+            self._loaded = name
+            self.profile.set(name)
+            self._refresh_profiles()
+            self.status.set(f"saved '{name}'")
+        return True
+
+    def _switch_profile(self):
+        name = self.profile.get()
+        if name == self._loaded:
+            return
+        if not self._confirm_discard() or not self._load_profile(name):
+            self.profile.set(self._loaded)
+
     def save(self):
-        path = filedialog.asksaveasfilename(defaultextension=".json",
-                                            filetypes=[("JSON", "*.json")])
-        if not path:
+        name = self._loaded or self.profile.get()
+        if not name:
+            self.save_as()  # nothing to overwrite yet
             return
         try:
-            Path(path).write_text(json.dumps(self._config(), indent=2))
+            self._config()  # validate before writing, so a bad field cannot land
         except Exception as exc:
             self._fail(f"bad setting: {exc}")
             return
+        if self._write_profile(name):
+            self._loaded = name
+            self.profile.set(name)
+            self._refresh_profiles()
+            self.status.set(f"saved '{name}'")
+
+    def save_as(self):
+        name = simpledialog.askstring("Save profile", "Profile name:", parent=self.root,
+                                      initialvalue=self._loaded or "profile")
+        if name is None:
+            return
+        name = _profile_name(name)
+        if not name:
+            self._fail("a profile name cannot be empty or contain / or \\")
+            return
+        try:
+            self._config()
+        except Exception as exc:
+            self._fail(f"bad setting: {exc}")
+            return
+        if self._write_profile(name):
+            self._loaded = name
+            self._remember(name)
+            self._refresh_profiles()
+            self.profile.set(name)
+            self.status.set(f"saved '{name}'")
+
+    def delete(self):
+        name = self._loaded or self.profile.get()
+        if not name:
+            return
+        if not messagebox.askyesno("neverKickOff", f"Delete profile \"{name}\"?"):
+            return
+        try:
+            self._profile_path(name).unlink()
+        except OSError as exc:
+            self._fail(f"could not delete '{name}': {exc}")
+            return
         self.error.set("")
-        self.status.set(f"saved {Path(path).name}")
+        for name in self._profile_names():  # skip any that fail to parse
+            if self._load_profile(name):
+                return
+        # editor keeps its content, but it is unsaved and Save has no target
+        self._loaded = ""
+        self._snapshot = ""
+        self.profile.set("")
+        self._refresh_profiles()
+        self.status.set("no profiles left - Save as\u2026 to make one")
 
     def load(self):
         path = filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
         if not path:
             return
         try:
-            self._apply(json.loads(Path(path).read_text()))
+            config = json.loads(Path(path).read_text())
         except Exception as exc:
             self._fail(f"bad profile: {exc}")
+            return
+        if not self._confirm_discard():
+            return
+        self._apply(config)
+        self._loaded = ""
+        self.profile.set("")
+        self._snapshot = json.dumps(self._config(), sort_keys=True)
+        self.status.set(f"imported {Path(path).name} - Save as\u2026 to keep it")
 
     def close(self):
+        if not self._confirm_discard():
+            return
         if self._poll is not None:
             self.root.after_cancel(self._poll)
             self._poll = None
@@ -659,9 +859,12 @@ class App:
 
 
 def main():
-    path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("config.json")
+    # No argument means the normal `nko` launch: the saved profile list is reused.
+    # An explicit path is a one-off, so the profile list stays out of the way.
+    explicit = len(sys.argv) > 1
+    path = Path(sys.argv[1]) if explicit else Path(__file__).with_name("config.json")
     root = tk.Tk()
-    App(root, json.loads(path.read_text()))
+    App(root, json.loads(path.read_text()), use_profiles=not explicit)
     root.mainloop()
 
 

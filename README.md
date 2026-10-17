@@ -89,7 +89,7 @@ Prints `all passed`. The tests need no display, so they pass over SSH or headles
 ## Run
 
 ```sh
-python gui.py               # window: capture hotkeys, edit timing, profiles
+python gui.py               # window: capture hotkeys, edit timing, switch profiles
 python main.py              # config-driven CLI, uses config.json
 python main.py my.json      # any config file
 python main.py --tray       # CLI plus a system-tray toggle (see Tray)
@@ -102,6 +102,25 @@ in five tabs - **Settings** (hotkeys and timing), **Mouse**, **Keyboard** and
 **Key combos** (a focused builder each; a keyboard step is one key, a combo is two
 or more) and **Macro** (the ordered run of every step) - and every field shows a
 tooltip on hover.
+
+### Profiles (GUI)
+
+The **Profile** row at the bottom of the window switches settings in one click.
+Pick a name from the dropdown to load it; **Save** writes the current settings to
+it, **Save as…** makes a new one, **Delete** removes it and **Import…** pulls in a
+JSON file from anywhere. Unsaved edits are offered to be saved before switching,
+deleting or closing.
+
+Profiles live in your user config folder, not next to the script:
+
+| OS      | Folder                                        |
+| ------- | --------------------------------------------- |
+| Linux   | `~/.config/neverKickOff/profiles/`            |
+| macOS   | `~/Library/Application Support/neverKickOff/profiles/` |
+| Windows | `%APPDATA%\neverKickOff\profiles\`            |
+
+The first launch seeds `default.json` from `config.json`, which stays the CLI's
+file - the two only meet at that first seed.
 
 ### Tray (optional)
 
