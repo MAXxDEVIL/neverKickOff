@@ -173,21 +173,43 @@ curl -fsSL https://raw.githubusercontent.com/MAXxDEVIL/neverKickOff/main/install
 irm https://raw.githubusercontent.com/MAXxDEVIL/neverKickOff/main/install-rust.ps1 | iex
 ```
 
-The script detects your OS and CPU, downloads the matching build from the latest
-release, **verifies its SHA-256**, installs it into `~/.local/bin`
+That is the recommended path. The script detects your OS and CPU, downloads the
+matching build, **verifies its SHA-256**, installs it into `~/.local/bin`
 (`%LOCALAPPDATA%\Programs\neverKickOff` on Windows) and puts that folder on your
 `PATH`. Anything it cannot install itself — `sudo` packages, macOS permissions —
 it **prints, never runs**, exactly like the Python installer.
+
+### Download just the binary
+
+Every release also carries a bare executable, so you can grab one file without
+running an installer. **A download from a release never carries the executable
+bit — `chmod +x` is what makes it runnable:**
+
+```sh
+# Linux x86-64. Swap the suffix for linux-aarch64, macos-x86_64 or macos-arm64.
+curl -fL -o neverkickoff \
+  https://github.com/MAXxDEVIL/neverKickOff/releases/latest/download/neverkickoff-linux-x86_64
+chmod +x neverkickoff
+./neverkickoff --version          # neverkickoff 1.0.0
+```
+
+```powershell
+# Windows — a .exe needs no chmod.
+curl.exe -fL -o neverkickoff.exe https://github.com/MAXxDEVIL/neverKickOff/releases/latest/download/neverkickoff-windows-x86_64.exe
+.\neverkickoff.exe --version
+```
+
+The file you get is a native executable for that OS and CPU, not a script.
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
 | Builds | x86-64, arm64 | Intel, Apple Silicon | x86-64 |
 | Needs at runtime | `libX11`, `libXtst`, and `ydotool` on Wayland | Accessibility + Input Monitoring permission | nothing |
 
-It reads `config.json` from next to the executable, so the installer drops a
-default one there and will not overwrite a config you have edited. Installing the
-binary replaces the Python `neverkickoff` command in `~/.local/bin`; the Python
-install itself is left alone.
+It reads `config.json` from next to the executable, so put one beside it — the
+installer does that and will not overwrite a config you have edited. Installing
+the binary replaces the Python `neverkickoff` command in `~/.local/bin`; the
+Python install itself is left alone.
 
 Published builds come from tagged releases only. Pinning one:
 

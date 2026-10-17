@@ -35,12 +35,13 @@ jobs:
       matrix:
         include:
           # 22.04 keeps the glibc requirement low; the arm runner is free for
-          # public repos and avoids cross-compiling aarch64.
-          - { target: x86_64-unknown-linux-gnu,  os: ubuntu-22.04 }
-          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm }
-          - { target: x86_64-apple-darwin,       os: macos-13 }
-          - { target: aarch64-apple-darwin,      os: macos-14 }
-          - { target: x86_64-pc-windows-msvc,    os: windows-2022 }
+          # public repos and avoids cross-compiling aarch64. `asset` is the
+          # friendly name of the bare executable (see the README).
+          - { target: x86_64-unknown-linux-gnu,  os: ubuntu-22.04,   asset: neverkickoff-linux-x86_64 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, asset: neverkickoff-linux-aarch64 }
+          - { target: x86_64-apple-darwin,       os: macos-13,      asset: neverkickoff-macos-x86_64 }
+          - { target: aarch64-apple-darwin,      os: macos-14,      asset: neverkickoff-macos-arm64 }
+          - { target: x86_64-pc-windows-msvc,    os: windows-2022,  asset: neverkickoff-windows-x86_64.exe }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -51,8 +52,10 @@ jobs:
       - run: cargo build --release --locked --target ${{ matrix.target }}
         working-directory: rust
 
-      # Stage <binary> + config.json together: with no path argument the app
-      # reads config.json from next to the executable.
+      # Two forms of the same build: an archive that keeps the executable bit
+      # (what install-rust.sh/.ps1 fetch) and a bare executable so a plain
+      # `curl -o` works without unpacking. Staging config.json beside the
+      # binary because with no path argument the app reads it from there.
       - name: package
         shell: bash
         working-directory: rust
@@ -63,17 +66,47 @@ jobs:
           mkdir -p "stage/$name"
           cp "target/${{ matrix.target }}/release/neverkickoff$ext" "stage/$name/"
           cp ../config.json "stage/$name/"
+          chmod +x "stage/$name/neverkickoff$ext"
           if [ "${{ runner.os }}" = "Windows" ]; then
             powershell.exe -NoProfile -Command \
               "Compress-Archive -Path 'stage/$name' -DestinationPath '$name.zip' -Force"
           else
             (cd stage && tar -czf "../$name.tar.gz" "$name")
           fi
+          cp "stage/$name/neverkickoff$ext" "${{ matrix.asset }}"
+          chmod +x "${{ matrix.asset }}"
+          # Note: GitHub never delivers the executable bit on a release download,
+          # so the README and both installers chmod after fetching. The bit is
+          # asserted here, before upload, so a bad artefact fails the build.
+
+      # A non-executable or broken artefact fails here rather than reaching a
+      # release. Every target builds on a runner of its own architecture.
+      - name: verify the packaged artefacts run
+        shell: bash
+        working-directory: rust
+        run: |
+          set -eu
+          name="neverkickoff-${{ matrix.target }}"
+          rm -rf verify && mkdir verify
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            powershell.exe -NoProfile -Command \
+              "Expand-Archive -Path '$name.zip' -DestinationPath 'verify' -Force"
+            bin="verify/$name/neverkickoff.exe"
+          else
+            tar xzf "$name.tar.gz" -C verify
+            bin="verify/$name/neverkickoff"
+            test -x "$bin" || { echo "::error::$bin is not executable"; exit 1; }
+          fi
+          [ -f "verify/$name/config.json" ] || { echo "::error::config.json missing from the archive"; exit 1; }
+          echo "archive : $("$bin" --version)"
+          echo "bare    : $(./${{ matrix.asset }} --version)"
 
       - uses: actions/upload-artifact@v4
         with:
           name: neverkickoff-${{ matrix.target }}
-          path: rust/neverkickoff-${{ matrix.target }}.*
+          path: |
+            rust/neverkickoff-${{ matrix.target }}.*
+            rust/${{ matrix.asset }}
           if-no-files-found: error
 
   release:
