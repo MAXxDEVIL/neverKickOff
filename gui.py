@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, font as tkfont, ttk
 
 from pynput import keyboard
 
@@ -30,6 +30,35 @@ TIMING = [
 STEP_KEYS = ("action", "button", "keys", "count", "hold", "wait")
 STEP_DEFAULT = {"action": "mouse", "button": "left", "keys": "",
                 "count": "1", "hold": "0", "wait": "0"}
+
+FIELD_HELP = {
+    "interval": "Seconds between macro runs. 0.1 = ten runs a second.",
+    "initial_delay": "Seconds to wait after Start before the first click.",
+    "repeat": "How many times to run the macro. -1 runs until you stop it.",
+    "jitter": "Random variation (0-1) added to the interval, so the timing looks less robotic.",
+    "duration": "Stop automatically after this many seconds. 0 runs until you stop it.",
+}
+
+
+def _font(bold=False):
+    face = tkfont.nametofont("TkDefaultFont").copy()
+    if bold:
+        face.configure(weight="bold")
+    return face
+
+
+def _theme(style):
+    """Flat 'clam' look with a few coloured styles. Returns the frame background."""
+    style.theme_use("clam")
+    style.configure("Accent.TButton", background="#1f883d", foreground="white",
+                    font=_font(True), padding=(14, 8))
+    style.map("Accent.TButton", background=[("active", "#1a7f37"), ("pressed", "#166b2e")])
+    style.configure("Stop.TButton", background="#cf222e", foreground="white",
+                    font=_font(True), padding=(14, 8))
+    style.map("Stop.TButton", background=[("active", "#b3202b"), ("pressed", "#9a1c25")])
+    style.configure("Hint.TLabel", foreground="#57606a")
+    style.configure("Error.TLabel", foreground="#cf222e", font=_font(True))
+    return style.lookup("TFrame", "background") or "#dcdad5"
 
 
 def _number(text):
@@ -59,97 +88,309 @@ def _step_from_click(click):
              "hold": str(click.get("hold", 0))}]
 
 
+def _kind(step):
+    """mouse, key (exactly one key) or combo (several) - derived, so no schema change."""
+    if step["action"] == "mouse":
+        return "mouse"
+    return "combo" if len([k for k in step["keys"].split("+") if k.strip()]) > 1 else "key"
+
+
+class _Tooltip:
+    """Hover help: one undecorated toplevel per widget, shown on <Enter>."""
+
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tip = None
+        widget.bind("<Enter>", self._show, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+
+    def _show(self, _event=None):
+        if self.tip or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 12
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        self.tip.wm_geometry(f"+{x}+{y}")
+        tk.Label(self.tip, text=self.text, justify="left", background="#fffbe6",
+                 relief="solid", borderwidth=1, padx=6, pady=3).pack()
+
+    def _hide(self, _event=None):
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
+
+
 class App:
     def __init__(self, root, config):
         self.root = root
         root.title("neverKickOff")
+        self.bg = _theme(ttk.Style(root))
+
         click = config["click"]
         hot = config["hotkeys"]
-
         self.window = tk.StringVar(value=click.get("window", ""))
         self.toggle_key = tk.StringVar(value=hot["toggle"])
         self.panic_key = tk.StringVar(value=hot["panic"])
         self.timing = {name: tk.StringVar(value=str(click.get(name, 0))) for _, name in TIMING}
         self.status = tk.StringVar(value="ready")
+        self.error = tk.StringVar()
 
         self.steps = _step_from_click(click)
         self.index = 0
         self._loading = False
+        self._poll = None
         self.step = {key: tk.StringVar() for key in STEP_KEYS}
         for var in self.step.values():
             var.trace_add("write", lambda *_: self._store_step())
+        self.step["action"].trace_add("write", lambda *_: self._sync_action())
+        # Separate scratch values for the Mouse/Keyboard/Key-combos builders, so
+        # typing there can never rewrite whichever step the Macro tab has selected.
+        self.builder = {key: tk.StringVar(value=STEP_DEFAULT[key])
+                        for key in ("button", "keys", "count", "hold", "wait")}
 
         self.clicker = Clicker(make_device(), self._spec(), focused_window=active_title)
         self.listener = None
         self._build()
         self._refresh()
         self._select(0)
+        self._sync_run()
         self._register_hotkeys()
+
+        root.minsize(780, 560)
+        root.update_idletasks()
+        x = max(0, (root.winfo_screenwidth() - root.winfo_reqwidth()) // 2)
+        y = max(0, (root.winfo_screenheight() - root.winfo_reqheight()) // 3)
+        root.geometry(f"+{x}+{y}")
         root.protocol("WM_DELETE_WINDOW", self.close)
 
+    # --- layout -------------------------------------------------------------
+
     def _build(self):
-        self.root.columnconfigure(1, weight=1)
+        self.kind_trees = {}
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(1, weight=1)
+        self._header()
+        notebook = ttk.Notebook(self.root)
+        notebook.grid(row=1, column=0, sticky="nsew", padx=12)
+        self._tab_settings(notebook)
+        self._tab_kind(notebook, "Mouse", "mouse")
+        self._tab_kind(notebook, "Keyboard", "key")
+        self._tab_kind(notebook, "Key combos", "combo")
+        self._tab_macro(notebook)
+        self._footer()
+
+    def _header(self):
+        bar = ttk.Frame(self.root, padding=(12, 12, 12, 8))
+        bar.grid(row=0, column=0, sticky="ew")
+        bar.columnconfigure(1, weight=1)
+        self.run_button = ttk.Button(bar, text="\u25b6  Start", command=self.toggle,
+                                     style="Accent.TButton")
+        self.run_button.grid(row=0, column=0, sticky="w")
+        line = ttk.Frame(bar)
+        line.grid(row=0, column=1, sticky="ew", padx=(12, 0))
+        line.columnconfigure(1, weight=1)
+        self.dot = tk.Canvas(line, width=14, height=14, highlightthickness=0, background=self.bg)
+        self.dot.grid(row=0, column=0)
+        self._dot = self.dot.create_oval(4, 4, 11, 11, fill="#57606a", outline="")
+        ttk.Label(line, textvariable=self.status, wraplength=430, justify="left").grid(
+            row=0, column=1, sticky="w", padx=(6, 0))
+
+    def _footer(self):
+        bar = ttk.Frame(self.root, padding=(12, 8, 12, 12))
+        bar.grid(row=2, column=0, sticky="ew")
+        bar.columnconfigure(0, weight=1)
+        left = ttk.Frame(bar)
+        left.grid(row=0, column=0, sticky="w")
+        ttk.Button(left, text="Save profile", command=self.save).pack(side="left")
+        ttk.Button(left, text="Load profile", command=self.load).pack(side="left", padx=(6, 0))
+        ttk.Label(bar, textvariable=self.error, style="Error.TLabel", wraplength=620,
+                  justify="left").grid(row=1, column=0, sticky="w", pady=(6, 0))
+
+    def _tab_settings(self, notebook):
+        page = ttk.Frame(notebook, padding=12)
+
+        hot = ttk.LabelFrame(page, text=" Hotkeys ", padding=10)
+        hot.pack(fill="x")
+        hot.columnconfigure(1, weight=1)
+        row = self._field(hot, 0, "Toggle hotkey", self._capture(hot, self.toggle_key),
+                          "Click the box, then press the combo, e.g. ctrl+alt+s. "
+                          "Starts and stops clicking.")
+        row = self._field(hot, row, "Panic hotkey", self._capture(hot, self.panic_key),
+                          "Click the box, then press the combo. Stops clicking straight away.")
+        ttk.Label(hot, style="Hint.TLabel", justify="left", wraplength=460,
+                  text="Global hotkeys work on Windows, macOS and Linux/X11.\n"
+                       "On Wayland they may not fire - use the Start/Stop button.").grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
+        timing = ttk.LabelFrame(page, text=" Timing ", padding=10)
+        timing.pack(fill="x", pady=(10, 0))
+        timing.columnconfigure(1, weight=1)
         row = 0
-        row = self._row(row, "Toggle hotkey", self._capture(self.root, self.toggle_key))
-        row = self._row(row, "Panic hotkey", self._capture(self.root, self.panic_key))
-        row = self._row(row, "Only click in window",
-                        ttk.Entry(self.root, textvariable=self.window))
-        row = self._heading(row, "Timing")
         for label, name in TIMING:
-            row = self._row(row, label, ttk.Entry(self.root, textvariable=self.timing[name]))
-        row = self._heading(row, "Macro steps (run in order, every tick)")
-        row = self._macro(row)
-        buttons = ttk.Frame(self.root)
-        ttk.Button(buttons, text="Start / Stop", command=self.toggle).pack(side="left")
-        ttk.Button(buttons, text="Save profile", command=self.save).pack(side="left")
-        ttk.Button(buttons, text="Load profile", command=self.load).pack(side="left")
-        buttons.grid(row=row, column=0, columnspan=2, sticky="w", padx=4, pady=4)
-        ttk.Label(self.root, textvariable=self.status).grid(
-            row=row + 1, column=0, columnspan=2, sticky="w", padx=4)
+            row = self._field(timing, row, label,
+                              ttk.Entry(timing, textvariable=self.timing[name]),
+                              FIELD_HELP.get(name))
+        self._field(timing, row, "Only click in window",
+                    ttk.Entry(timing, textvariable=self.window),
+                    "Only click while the focused window title contains this text; empty "
+                    "always clicks. Wayland: matches X11/XWayland apps only.")
+        notebook.add(page, text="  Settings  ")
 
-    def _macro(self, row):
-        frame = ttk.Frame(self.root)
-        frame.grid(row=row, column=0, columnspan=2, sticky="ew", padx=4)
-        frame.columnconfigure(0, weight=1)
+    def _tab_kind(self, notebook, title, kind):
+        """A focused builder for one step kind, plus a list of just those steps."""
+        page = ttk.Frame(notebook, padding=12)
+        page.rowconfigure(0, weight=1)
+        page.columnconfigure(0, weight=1, minsize=300)
 
-        self.listbox = tk.Listbox(frame, height=5, exportselection=False)
-        self.listbox.grid(row=0, column=0, sticky="ew")
-        self.listbox.bind("<<ListboxSelect>>", self._on_select)
+        left = ttk.Frame(page)
+        left.grid(row=0, column=0, sticky="nsew")
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(0, weight=1)
 
-        side = ttk.Frame(frame)
-        side.grid(row=0, column=1, sticky="n", padx=(4, 0))
+        tree = ttk.Treeview(left, columns=("n", "detail", "count"), show="headings",
+                            height=7, selectmode="browse")
+        for name, text, width in (("n", "#", 40), ("detail", "Detail", 170),
+                                  ("count", "Count", 70)):
+            tree.heading(name, text=text)
+            tree.column(name, width=width, anchor="w", stretch=(name == "detail"))
+        tree.grid(row=0, column=0, sticky="nsew")
+        scroll = ttk.Scrollbar(left, orient="vertical", command=tree.yview)
+        scroll.grid(row=0, column=1, sticky="ns")
+        tree.configure(yscrollcommand=scroll.set)
+        tree.bind("<<TreeviewSelect>>", lambda event, k=kind: self._on_kind_select(k))
+        self.kind_trees[kind] = tree
+
+        builder = ttk.LabelFrame(page, text=f" {title} step ", padding=10)
+        builder.grid(row=0, column=1, sticky="new", padx=(14, 0))
+        builder.columnconfigure(1, weight=1)
+        row = self._kind_form(builder, kind)
+        ttk.Button(builder, text="Add to macro", command=lambda: self._add_kind(kind)).grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        ttk.Label(left, style="Hint.TLabel", wraplength=330, justify="left",
+                  text="Added steps join the Macro tab in run order.").grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        notebook.add(page, text=f"  {title}  ")
+
+    def _kind_form(self, builder, kind):
+        if kind == "mouse":
+            row = self._field(builder, 0, "Button",
+                              self._radios(builder, self.builder["button"],
+                                           ["left", "right", "middle"]),
+                              "Which mouse button this step clicks.")
+        elif kind == "key":
+            row = self._field(builder, 0, "Key",
+                              self._capture(builder, self.builder["keys"], single=True),
+                              "Click the box, then press a single key, e.g. a or enter.")
+        else:
+            row = self._field(builder, 0, "Key combo",
+                              self._capture(builder, self.builder["keys"]),
+                              "Click the box, then press two or more keys, e.g. ctrl+c.")
+        for label, key, hint in (
+                ("Press count", "count", "How many times this step runs each tick."),
+                ("Hold each (s)", "hold", "Seconds to keep the button or key held down."),
+                ("Wait after (s)", "wait", "Seconds to pause after this step.")):
+            row = self._field(builder, row, label,
+                              ttk.Entry(builder, textvariable=self.builder[key]), hint)
+        return row
+
+    def _add_kind(self, kind):
+        keys = [k for k in self.builder["keys"].get().split("+") if k.strip()]
+        if kind == "combo" and len(keys) < 2:
+            self._fail("a key combo needs at least 2 keys - use the Keyboard tab for one key")
+            return
+        if kind == "key" and len(keys) != 1:
+            self._fail("the Keyboard tab takes exactly one key - use Key combos for several")
+            return
+        step = dict(STEP_DEFAULT)
+        for key in ("count", "hold", "wait"):
+            value = self.builder[key].get().strip()
+            if value:
+                step[key] = value
+        if kind == "mouse":
+            step["button"] = self.builder["button"].get() or "left"
+        else:
+            step["action"] = "keys"
+            step["keys"] = "+".join(keys)
+        self.error.set("")
+        self.steps.append(step)
+        self.index = len(self.steps) - 1
+        self._refresh()
+        self._select(self.index)
+
+    def _tab_macro(self, notebook):
+        page = ttk.Frame(notebook, padding=12)
+        page.rowconfigure(0, weight=1)
+        page.columnconfigure(0, weight=1, minsize=330)
+
+        left = ttk.Frame(page)
+        left.grid(row=0, column=0, sticky="nsew")
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(0, weight=1)
+
+        self.tree = ttk.Treeview(left, columns=("n", "action", "detail", "count"),
+                                 show="headings", height=7, selectmode="browse")
+        for name, text, width in (("n", "#", 40), ("action", "Action", 80),
+                                  ("detail", "Detail", 170), ("count", "Count", 70)):
+            self.tree.heading(name, text=text)
+            self.tree.column(name, width=width, anchor="w", stretch=(name == "detail"))
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        scroll = ttk.Scrollbar(left, orient="vertical", command=self.tree.yview)
+        scroll.grid(row=0, column=1, sticky="ns")
+        self.tree.configure(yscrollcommand=scroll.set)
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+
+        tools = ttk.Frame(left)
+        tools.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
         for text, command in (("Add", self._add_step), ("Remove", self._remove_step),
                               ("Up", lambda: self._move(-1)), ("Down", lambda: self._move(1))):
-            ttk.Button(side, text=text, width=8, command=command).pack(fill="x", pady=1)
+            ttk.Button(tools, text=text, width=8, command=command).pack(side="left", padx=(0, 4))
+        ttk.Label(left, style="Hint.TLabel", wraplength=330, justify="left",
+                  text="Steps run in order, once per tick.").grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
-        editor = ttk.LabelFrame(frame, text="Selected step")
-        editor.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        editor = ttk.LabelFrame(page, text=" Selected step ", padding=10)
+        editor.grid(row=0, column=1, sticky="new", padx=(14, 0))
         editor.columnconfigure(1, weight=1)
-        r = 0
-        r = self._sub_row(editor, r, "Action",
-                          self._radios(editor, self.step["action"], ["mouse", "keys"]))
-        r = self._sub_row(editor, r, "Button",
-                          self._radios(editor, self.step["button"], ["left", "right", "middle"]))
-        r = self._sub_row(editor, r, "Key combo", self._capture(editor, self.step["keys"]))
-        for label, key in (("Press count", "count"), ("Hold each (s)", "hold"),
-                           ("Wait after (s)", "wait")):
-            r = self._sub_row(editor, r, label, ttk.Entry(editor, textvariable=self.step[key]))
+        self._field(editor, 0, "Action", self._radios(editor, self.step["action"], ["mouse", "keys"]),
+                    "mouse = click a button. keys = press a key combo.")
+        box = ttk.Frame(editor)
+        box.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        box.columnconfigure(0, weight=1)
+        self.button_row = self._group(box, "Button",
+                                      self._radios(box, self.step["button"],
+                                                   ["left", "right", "middle"]),
+                                      "Which mouse button this step clicks.")
+        self.keys_row = self._group(box, "Key combo", self._capture(box, self.step["keys"]),
+                                    "Click the box, then press the keys, e.g. ctrl+c.")
+        self.button_row.grid(row=0, column=0, sticky="ew")
+        self.keys_row.grid(row=0, column=0, sticky="ew")
+        row = 2
+        for label, key, hint in (
+                ("Press count", "count", "How many times this step runs each tick."),
+                ("Hold each (s)", "hold", "Seconds to keep the button or key held down."),
+                ("Wait after (s)", "wait", "Seconds to pause after this step.")):
+            row = self._field(editor, row, label, ttk.Entry(editor, textvariable=self.step[key]), hint)
+        self._sync_action()
+        notebook.add(page, text="  Macro  ")
+
+    def _field(self, parent, row, label, widget, hint=None):
+        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 10), pady=4)
+        widget.grid(row=row, column=1, sticky="ew", pady=4)
+        if hint:
+            _Tooltip(widget, hint)
         return row + 1
 
-    def _heading(self, row, text):
-        ttk.Label(self.root, text=text).grid(row=row, column=0, columnspan=2,
-                                             sticky="w", padx=4, pady=(8, 0))
-        return row + 1
-
-    def _row(self, row, label, widget):
-        ttk.Label(self.root, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=2)
-        widget.grid(row=row, column=1, sticky="ew", padx=4, pady=2)
-        return row + 1
-
-    def _sub_row(self, parent, row, label, widget):
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=2)
-        widget.grid(row=row, column=1, sticky="ew", padx=4, pady=2)
-        return row + 1
+    def _group(self, parent, label, widget, hint=None):
+        """A label+widget row in its own frame, so it can be hidden as a unit."""
+        frame = ttk.Frame(parent)
+        frame.columnconfigure(1, weight=1)
+        ttk.Label(frame, text=label).grid(row=0, column=0, sticky="w", padx=(0, 10))
+        widget.grid(row=0, column=1, sticky="ew")
+        if hint:
+            _Tooltip(widget, hint)
+        return frame
 
     def _radios(self, parent, var, options):
         frame = ttk.Frame(parent)
@@ -157,23 +398,38 @@ class App:
             ttk.Radiobutton(frame, text=option, value=option, variable=var).pack(side="left")
         return frame
 
-    def _capture(self, parent, var):
+    def _capture(self, parent, var, single=False):
         entry = ttk.Entry(parent, textvariable=var)
-        entry.bind("<KeyPress>", lambda event: self._captured(event, var))
+        entry.bind("<KeyPress>", lambda event: self._captured(event, var, single))
         entry.bind("<FocusOut>", lambda event: self._register_hotkeys())
         return entry
 
-    def _captured(self, event, var):
+    def _captured(self, event, var, single=False):
         combo = format_hotkey(event.keysym, event.state)
-        if combo:
+        if combo and (not single or "+" not in combo):
             var.set(combo)
         return "break"  # keep the typed key out of the entry
 
+    def _sync_action(self):
+        """A mouse step has no key combo, a keys step has no button."""
+        if self.step["action"].get() == "keys":
+            self.button_row.grid_remove()
+            self.keys_row.grid()
+        else:
+            self.keys_row.grid_remove()
+            self.button_row.grid()
+
     # --- macro list <-> step editor -----------------------------------------
 
-    def _on_select(self, event):
-        if self.listbox.curselection():
-            self._select(self.listbox.curselection()[0])
+    def _on_select(self, event=None):
+        selection = self.tree.selection()
+        if selection and int(selection[0]) != self.index:
+            self._select(int(selection[0]))
+
+    def _on_kind_select(self, kind):
+        selection = self.kind_trees[kind].selection()
+        if selection and int(selection[0]) != self.index:
+            self._select(int(selection[0]))
 
     def _select(self, index):
         if not self.steps:
@@ -183,6 +439,19 @@ class App:
         for key, var in self.step.items():
             var.set(self.steps[self.index][key])
         self._loading = False
+        self._sync_selection()
+
+    def _sync_selection(self):
+        """Highlight the selected step in every list.
+
+        Tk queues <<TreeviewSelect>> for these selection_set calls; the handlers
+        ignore an event whose index already equals self.index, so no echo loop.
+        """
+        for tree in (self.tree, *self.kind_trees.values()):
+            iid = str(self.index)
+            if tree.exists(iid):
+                tree.selection_set(iid)
+                tree.see(iid)
 
     def _store_step(self):
         if self._loading or not self.steps:
@@ -191,13 +460,20 @@ class App:
         self._refresh()
 
     def _refresh(self):
-        self.listbox.delete(0, "end")
+        self.tree.delete(*self.tree.get_children())
         for i, step in enumerate(self.steps):
             detail = step["keys"] if step["action"] == "keys" else step["button"]
-            self.listbox.insert("end", f'{i + 1}. {step["action"]} {detail} x{step["count"]}')
-        self.listbox.selection_clear(0, "end")
-        if self.steps:
-            self.listbox.selection_set(self.index)
+            self.tree.insert("", "end", iid=str(i),
+                             values=(i + 1, step["action"], detail or "-", f'x{step["count"]}'))
+        for kind, tree in self.kind_trees.items():
+            tree.delete(*tree.get_children())
+            for i, step in enumerate(self.steps):
+                if _kind(step) != kind:
+                    continue
+                detail = step["button"] if kind == "mouse" else step["keys"]
+                tree.insert("", "end", iid=str(i),
+                            values=(i + 1, detail or "-", f'x{step["count"]}'))
+        self._sync_selection()
 
     def _add_step(self):
         self.steps.append(dict(STEP_DEFAULT))
@@ -207,8 +483,9 @@ class App:
 
     def _remove_step(self):
         if len(self.steps) <= 1:
-            self.status.set("a macro needs at least one step")
+            self._fail("a macro needs at least one step")
             return
+        self.error.set("")
         del self.steps[self.index]
         self.index = min(self.index, len(self.steps) - 1)
         self._refresh()
@@ -221,8 +498,12 @@ class App:
         self.steps[self.index], self.steps[target] = self.steps[target], self.steps[self.index]
         self.index = target
         self._refresh()
+        self._select(self.index)
 
     # --- running ------------------------------------------------------------
+
+    def _fail(self, message):
+        self.error.set(message)
 
     def _register_hotkeys(self):
         if self.listener:
@@ -234,11 +515,13 @@ class App:
                 self.panic_key.get(): self._hotkey_stop,
             })
             self.listener.start()
-            warn = (" (global hotkeys may not fire on Wayland - use the buttons)"
-                    if os.environ.get("XDG_SESSION_TYPE") == "wayland" else "")
-            self.status.set(f"{self.toggle_key.get()} start/stop, {self.panic_key.get()} stop{warn}")
+            if not self.clicker.running:  # don't overwrite the run state on focus loss
+                warn = (" (global hotkeys may not fire on Wayland - use the button)"
+                        if os.environ.get("XDG_SESSION_TYPE") == "wayland" else "")
+                self.status.set(f"ready - {self.toggle_key.get()} start/stop, "
+                                f"{self.panic_key.get()} stop{warn}")
         except Exception as exc:
-            self.status.set(f"hotkey error: {exc}")
+            self._fail(f"hotkey error: {exc}")
 
     # Global hotkeys fire on the pynput listener thread; tkinter is not
     # thread-safe, so hop back to the main thread before touching the UI.
@@ -252,8 +535,9 @@ class App:
         try:
             spec = self._spec()
         except Exception as exc:
-            self.status.set(f"bad setting: {exc}")
+            self._fail(f"bad setting: {exc}")
             return
+        self.error.set("")
         self.clicker.set_spec(spec)
         started = self.clicker.toggle()
         issue = problem() if started else None
@@ -267,10 +551,31 @@ class App:
                             "Wayland (clear it to click everywhere)")
         else:
             self.status.set("running" if started else "stopped")
+        self._sync_run()
 
     def stop(self):
         self.clicker.stop()
         self.status.set("stopped")
+        self._sync_run()
+
+    def _sync_run(self):
+        """Mirror the engine's state on the button and dot."""
+        running = self.clicker.running
+        self.run_button.configure(text="\u25a0  Stop" if running else "\u25b6  Start",
+                                  style="Stop.TButton" if running else "Accent.TButton")
+        self.dot.itemconfig(self._dot, fill="#1f883d" if running else "#57606a")
+        if running and self._poll is None:
+            self._poll = self.root.after(400, self._watch)
+        elif not running and self._poll is not None:
+            self.root.after_cancel(self._poll)
+            self._poll = None
+
+    def _watch(self):
+        """The engine can finish on its own (finite repeat/duration) - catch up."""
+        self._poll = None
+        if not self.clicker.running:
+            self.status.set("stopped")
+        self._sync_run()
 
     def _spec(self):
         spec = {"window": self.window.get().strip(), "steps": []}
@@ -315,6 +620,7 @@ class App:
         self.toggle_key.set(hot.get("toggle", self.toggle_key.get()))
         self.panic_key.set(hot.get("panic", self.panic_key.get()))
         self._register_hotkeys()
+        self.error.set("")
         self.status.set("profile loaded")
 
     def save(self):
@@ -325,8 +631,9 @@ class App:
         try:
             Path(path).write_text(json.dumps(self._config(), indent=2))
         except Exception as exc:
-            self.status.set(f"bad setting: {exc}")
+            self._fail(f"bad setting: {exc}")
             return
+        self.error.set("")
         self.status.set(f"saved {Path(path).name}")
 
     def load(self):
@@ -336,9 +643,12 @@ class App:
         try:
             self._apply(json.loads(Path(path).read_text()))
         except Exception as exc:
-            self.status.set(f"bad profile: {exc}")
+            self._fail(f"bad profile: {exc}")
 
     def close(self):
+        if self._poll is not None:
+            self.root.after_cancel(self._poll)
+            self._poll = None
         self.clicker.stop()
         if self.listener:
             try:

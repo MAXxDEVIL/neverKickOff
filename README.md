@@ -96,8 +96,12 @@ python main.py --tray       # CLI plus a system-tray toggle (see Tray)
 ```
 
 CLI: `Ctrl+Alt+S` starts/stops, `Esc` panic-stops. GUI: click a hotkey field and
-press the combination you want; `Start / Stop` or the toggle hotkey works from any
-window.
+press the combination you want; the **Start** button at the top (it becomes
+**Stop** while running) or the toggle hotkey works from any window. Settings live
+in five tabs - **Settings** (hotkeys and timing), **Mouse**, **Keyboard** and
+**Key combos** (a focused builder each; a keyboard step is one key, a combo is two
+or more) and **Macro** (the ordered run of every step) - and every field shows a
+tooltip on hover.
 
 ### Tray (optional)
 

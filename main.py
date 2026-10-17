@@ -138,6 +138,11 @@ class Clicker:
                 self._engine = None
                 print("stopped")
 
+    @property
+    def running(self):
+        """True while an engine is live; False once a finite run finishes."""
+        return self._engine is not None
+
 
 import ydotool
 
