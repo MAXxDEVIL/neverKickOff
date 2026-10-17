@@ -39,6 +39,25 @@ FIELD_HELP = {
     "duration": "Stop automatically after this many seconds. 0 runs until you stop it.",
 }
 
+# Automation: a keyboard-only loop with its own run/stop and stop hotkey.
+AUTO_STEP_DEFAULT = {"keys": "", "wait": "0"}
+AUTO_DEFAULTS = {"interval": "1.0", "initial_delay": "2.0", "stop_key": "<f12>"}
+AUTO_TIMING = [
+    ("Loop delay (s)", "interval", "Seconds between one pass of the loop and the next."),
+    ("Start delay (s)", "initial_delay",
+     "Seconds after Run loop before the first key, so you can focus the target window."),
+]
+
+
+def _auto_steps(raw):
+    """A config's automation steps -> editable string-valued dicts."""
+    steps = []
+    for item in raw or []:
+        keys = item.get("keys", "")
+        steps.append({"keys": "+".join(keys) if isinstance(keys, list) else str(keys),
+                      "wait": str(item.get("wait", 0))})
+    return steps or [dict(AUTO_STEP_DEFAULT)]
+
 
 def _font(bold=False):
     face = tkfont.nametofont("TkDefaultFont").copy()
@@ -176,18 +195,35 @@ class App:
         self.builder = {key: tk.StringVar(value=STEP_DEFAULT[key])
                         for key in ("button", "keys", "count", "hold", "wait")}
 
+        # Automation: a second, keyboard-only loop. Only one loop runs at a time,
+        # so it feeds the same Clicker and reaches the same one device.
+        auto = config.get("automation", {})
+        self.auto_timing = {name: tk.StringVar(value=str(auto.get(name, AUTO_DEFAULTS[name])))
+                            for _, name, _ in AUTO_TIMING}
+        self.auto_stop_key = tk.StringVar(value=auto.get("stop_key", AUTO_DEFAULTS["stop_key"]))
+        self.auto_status = tk.StringVar(value="idle")
+        self.auto_steps = _auto_steps(auto.get("steps"))
+        self.auto_index = 0
+        self._auto_loading = False
+        self.auto_step = {key: tk.StringVar(value=AUTO_STEP_DEFAULT[key]) for key in AUTO_STEP_DEFAULT}
+        for var in self.auto_step.values():
+            var.trace_add("write", lambda *_: self._store_auto_step())
+        self._source = ""  # which loop the Clicker is running: "macro", "auto" or ""
+
         self.clicker = Clicker(make_device(), self._spec(), focused_window=active_title)
         self.listener = None
         self._build()
         self._refresh()
         self._select(0)
+        self._auto_refresh()
+        self._auto_select(0)
         self._sync_run()
         self._register_hotkeys()
 
         # Profiles live outside the app folder, so nothing is written next to the
         # script. The passed config seeds 'default' on first run only.
         if use_profiles:
-            self._open_startup_profile(config)
+            self._open_startup_profile()
         else:
             self._snapshot = json.dumps(self._config(), sort_keys=True)
             self._refresh_profiles()
@@ -213,6 +249,7 @@ class App:
         self._tab_kind(notebook, "Keyboard", "key")
         self._tab_kind(notebook, "Key combos", "combo")
         self._tab_macro(notebook)
+        self._tab_automation(notebook)
         self._footer()
 
     def _header(self):
@@ -415,6 +452,67 @@ class App:
         self._sync_action()
         notebook.add(page, text="  Macro  ")
 
+    def _tab_automation(self, notebook):
+        page = ttk.Frame(notebook, padding=12)
+        page.rowconfigure(0, weight=1)
+        page.columnconfigure(0, weight=1, minsize=330)
+
+        left = ttk.Frame(page)
+        left.grid(row=0, column=0, sticky="nsew")
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(0, weight=1)
+
+        self.auto_tree = ttk.Treeview(left, columns=("n", "keys", "wait"), show="headings",
+                                      height=7, selectmode="browse")
+        for name, text, width in (("n", "#", 40), ("keys", "Key / combo", 200),
+                                  ("wait", "Wait (s)", 80)):
+            self.auto_tree.heading(name, text=text)
+            self.auto_tree.column(name, width=width, anchor="w", stretch=(name == "keys"))
+        self.auto_tree.grid(row=0, column=0, sticky="nsew")
+        scroll = ttk.Scrollbar(left, orient="vertical", command=self.auto_tree.yview)
+        scroll.grid(row=0, column=1, sticky="ns")
+        self.auto_tree.configure(yscrollcommand=scroll.set)
+        self.auto_tree.bind("<<TreeviewSelect>>", self._on_auto_select)
+
+        tools = ttk.Frame(left)
+        tools.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        for text, command in (("Add", self._auto_add), ("Remove", self._auto_remove),
+                              ("Up", lambda: self._auto_move(-1)),
+                              ("Down", lambda: self._auto_move(1))):
+            ttk.Button(tools, text=text, width=8, command=command).pack(side="left", padx=(0, 4))
+
+        run = ttk.Frame(left)
+        run.grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self.auto_run = ttk.Button(run, text="\u25b6  Run loop", width=13,
+                                   command=self.toggle_auto)
+        self.auto_run.pack(side="left")
+        ttk.Label(run, textvariable=self.auto_status, style="Hint.TLabel").pack(
+            side="left", padx=(10, 0))
+        ttk.Label(left, style="Hint.TLabel", wraplength=330, justify="left",
+                  text="Keys and combos run in order, over and over, until you stop.\n"
+                       "Runs instead of the macro - only one loop at a time.").grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
+        editor = ttk.LabelFrame(page, text=" Selected step ", padding=10)
+        editor.grid(row=0, column=1, sticky="new", padx=(14, 0))
+        editor.columnconfigure(1, weight=1)
+        row = self._field(editor, 0, "Key combo", self._capture(editor, self.auto_step["keys"]),
+                          "Click the box, then press a key or a combo, e.g. f5 or ctrl+c.")
+        self._field(editor, row, "Wait after (s)", ttk.Entry(editor, textvariable=self.auto_step["wait"]),
+                    "Seconds to pause after this step.")
+
+        timing = ttk.LabelFrame(page, text=" Loop ", padding=10)
+        timing.grid(row=1, column=1, sticky="new", padx=(14, 0), pady=(12, 0))
+        timing.columnconfigure(1, weight=1)
+        row = 0
+        for label, name, hint in AUTO_TIMING:
+            row = self._field(timing, row, label,
+                              ttk.Entry(timing, textvariable=self.auto_timing[name]), hint)
+        self._field(timing, row, "Stop key", self._capture(timing, self.auto_stop_key),
+                    "Global hotkey that stops the loop, e.g. f12. Stops the loop only. "
+                    "Does not fire on Wayland - use the button there.")
+        notebook.add(page, text="  Automation  ")
+
     def _field(self, parent, row, label, widget, hint=None):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 10), pady=4)
         widget.grid(row=row, column=1, sticky="ew", pady=4)
@@ -522,23 +620,83 @@ class App:
         self._select(self.index)
 
     def _remove_step(self):
-        if len(self.steps) <= 1:
-            self._fail("a macro needs at least one step")
-            return
-        self.error.set("")
-        del self.steps[self.index]
-        self.index = min(self.index, len(self.steps) - 1)
+        self.index = self._remove_from(self.steps, self.index, "a macro")
         self._refresh()
         self._select(self.index)
 
     def _move(self, delta):
-        target = self.index + delta
-        if not 0 <= target < len(self.steps):
-            return
-        self.steps[self.index], self.steps[target] = self.steps[target], self.steps[self.index]
-        self.index = target
+        self.index = self._move_in(self.steps, self.index, delta)
         self._refresh()
         self._select(self.index)
+
+    def _remove_from(self, steps, index, label):
+        """Drop steps[index]; the list keeps a last step. Returns the new index."""
+        if len(steps) <= 1:
+            self._fail(f"{label} needs at least one step")
+            return index
+        self.error.set("")
+        del steps[index]
+        return min(index, len(steps) - 1)
+
+    def _move_in(self, steps, index, delta):
+        """Swap steps[index] with its neighbour. Returns the new index."""
+        target = index + delta
+        if not 0 <= target < len(steps):
+            return index
+        steps[index], steps[target] = steps[target], steps[index]
+        return target
+
+    # --- automation list <-> step editor -------------------------------------
+
+    def _on_auto_select(self, event=None):
+        selection = self.auto_tree.selection()
+        if selection and int(selection[0]) != self.auto_index:
+            self._auto_select(int(selection[0]))
+
+    def _auto_select(self, index):
+        if not self.auto_steps:
+            return
+        self.auto_index = max(0, min(index, len(self.auto_steps) - 1))
+        self._auto_loading = True
+        for key, var in self.auto_step.items():
+            var.set(self.auto_steps[self.auto_index][key])
+        self._auto_loading = False
+        self._auto_sync_selection()
+
+    def _auto_sync_selection(self):
+        iid = str(self.auto_index)
+        if self.auto_tree.exists(iid):
+            self.auto_tree.selection_set(iid)
+            self.auto_tree.see(iid)
+
+    def _store_auto_step(self):
+        if self._auto_loading or not self.auto_steps:
+            return
+        self.auto_steps[self.auto_index] = {key: var.get() for key, var in self.auto_step.items()}
+        self._auto_refresh()
+
+    def _auto_refresh(self):
+        self.auto_tree.delete(*self.auto_tree.get_children())
+        for i, step in enumerate(self.auto_steps):
+            self.auto_tree.insert("", "end", iid=str(i),
+                                  values=(i + 1, step["keys"] or "-", step["wait"]))
+        self._auto_sync_selection()
+
+    def _auto_add(self):
+        self.auto_steps.append(dict(AUTO_STEP_DEFAULT))
+        self.auto_index = len(self.auto_steps) - 1
+        self._auto_refresh()
+        self._auto_select(self.auto_index)
+
+    def _auto_remove(self):
+        self.auto_index = self._remove_from(self.auto_steps, self.auto_index, "an automation loop")
+        self._auto_refresh()
+        self._auto_select(self.auto_index)
+
+    def _auto_move(self, delta):
+        self.auto_index = self._move_in(self.auto_steps, self.auto_index, delta)
+        self._auto_refresh()
+        self._auto_select(self.auto_index)
 
     # --- running ------------------------------------------------------------
 
@@ -556,6 +714,7 @@ class App:
             self.listener = keyboard.GlobalHotKeys({
                 self.toggle_key.get(): self._hotkey_toggle,
                 self.panic_key.get(): self._hotkey_stop,
+                self.auto_stop_key.get(): self._hotkey_auto_stop,
             })
             self.listener.start()
             if not self.clicker.running:  # don't overwrite the run state on focus loss
@@ -574,15 +733,42 @@ class App:
     def _hotkey_stop(self):
         self.root.after(0, self.stop)
 
+    def _hotkey_auto_stop(self):
+        self.root.after(0, self.stop_auto)
+
     def toggle(self):
+        """Header button: run the macro, or stop whatever is currently running."""
+        if self.clicker.running:
+            self.stop()  # the header shows Stop, so it must stop, not switch
+            return
+        self._start_stop("macro")
+
+    def toggle_auto(self):
+        """Automation tab: run or stop the keyboard loop."""
+        self._start_stop("auto")
+
+    def _start_stop(self, source):
+        # One loop at a time: the clicker is shared, so a new run replaces the old.
+        if self.clicker.running and self._source == source:
+            self.stop()
+            return
         try:
-            spec = self._spec()
+            spec = self._spec() if source == "macro" else self._auto_spec()
         except Exception as exc:
             self._fail(f"bad setting: {exc}")
             return
+        if source == "auto" and not spec["steps"]:
+            self._fail("add at least one key to the automation loop")
+            return
         self.error.set("")
+        if self.clicker.running:
+            # shortcut: the old engine may still be mid-step for up to its hold
+            # time, so the two can briefly overlap. Give Clicker.toggle() a join
+            # if that ever matters.
+            self.clicker.stop()
         self.clicker.set_spec(spec)
         started = self.clicker.toggle()
+        self._source = source if started else ""
         issue = problem() if started else None
         if issue:
             self.status.set(f"running, but input will not be sent: {issue}")
@@ -599,14 +785,26 @@ class App:
     def stop(self):
         self.clicker.stop()
         self.status.set("stopped")
+        self._source = ""
         self._sync_run()
 
+    def stop_auto(self):
+        """The automation stop key stops the loop only, never the macro."""
+        if self._source == "auto":
+            self.stop()
+
     def _sync_run(self):
-        """Mirror the engine's state on the button and dot."""
+        """Mirror the engine's state on the button, dot and automation tab."""
         running = self.clicker.running
+        if not running:
+            self._source = ""
         self.run_button.configure(text="\u25a0  Stop" if running else "\u25b6  Start",
                                   style="Stop.TButton" if running else "Accent.TButton")
         self.dot.itemconfig(self._dot, fill="#1f883d" if running else "#57606a")
+        looping = running and self._source == "auto"
+        self.auto_run.configure(text="\u25a0  Stop loop" if looping else "\u25b6  Run loop")
+        self.auto_status.set("looping" if looping else
+                             ("idle - the macro is running" if running else "idle"))
         if running and self._poll is None:
             self._poll = self.root.after(400, self._watch)
         elif not running and self._poll is not None:
@@ -634,6 +832,20 @@ class App:
             spec["steps"].append(built)
         return spec
 
+    def _auto_spec(self):
+        """The keyboard loop as an engine spec: keys only, forever, no window filter."""
+        steps = []
+        for step in self.auto_steps:
+            keys = [k for k in step["keys"].split("+") if k.strip()]
+            if not keys:  # a blank row is a row being typed, not a step
+                continue
+            steps.append({"action": "keys", "keys": parse_combo("+".join(keys)),
+                          "count": 1, "hold": 0, "wait": _number(step["wait"] or 0)})
+        spec = {"window": "", "steps": steps, "repeat": -1, "jitter": 0, "duration": 0}
+        for _, name, _ in AUTO_TIMING:
+            spec[name] = _number(self.auto_timing[name].get())
+        return spec
+
     def _config(self):
         click = {"window": self.window.get().strip(), "steps": []}
         for _, name in TIMING:
@@ -646,8 +858,14 @@ class App:
             else:
                 entry["button"] = step["button"]
             click["steps"].append(entry)
+        automation = {"stop_key": self.auto_stop_key.get(),
+                      "steps": [{"keys": step["keys"], "wait": _number(step["wait"])}
+                                for step in self.auto_steps]}
+        for _, name, _ in AUTO_TIMING:
+            automation[name] = _number(self.auto_timing[name].get())
         return {"hotkeys": {"toggle": self.toggle_key.get(), "panic": self.panic_key.get()},
-                "click": click}
+                "click": click,
+                "automation": automation}
 
     def _apply(self, config):
         click = config.get("click", {})
@@ -659,6 +877,14 @@ class App:
         self.index = 0
         self._refresh()
         self._select(0)
+        auto = config.get("automation", {})
+        for _, name, _ in AUTO_TIMING:
+            self.auto_timing[name].set(str(auto.get(name, AUTO_DEFAULTS[name])))
+        self.auto_stop_key.set(auto.get("stop_key", AUTO_DEFAULTS["stop_key"]))
+        self.auto_steps = _auto_steps(auto.get("steps"))
+        self.auto_index = 0
+        self._auto_refresh()
+        self._auto_select(0)
         hot = config.get("hotkeys", {})
         self.toggle_key.set(hot.get("toggle", self.toggle_key.get()))
         self.panic_key.set(hot.get("panic", self.panic_key.get()))
@@ -695,12 +921,11 @@ class App:
         except OSError:
             pass
 
-    def _write_profile(self, name, config=None):
+    def _write_profile(self, name):
         try:
             folder = _profiles_dir()
             folder.mkdir(parents=True, exist_ok=True)
-            self._profile_path(name).write_text(
-                json.dumps(config if config is not None else self._config(), indent=2))
+            self._profile_path(name).write_text(json.dumps(self._config(), indent=2))
         except Exception as exc:
             self._fail(f"could not save '{name}': {exc}")
             return False
@@ -723,7 +948,7 @@ class App:
         self._refresh_profiles()
         return True
 
-    def _open_startup_profile(self, config):
+    def _open_startup_profile(self):
         """Seed the folder on first run, then reopen the last profile used."""
         try:
             folder = _profiles_dir()
@@ -733,7 +958,7 @@ class App:
             self._snapshot = json.dumps(self._config(), sort_keys=True)
             return
         if not self._profile_names():
-            self._write_profile("default", config)
+            self._write_profile("default")
         try:
             last = folder.joinpath(".last").read_text().strip()
         except OSError:
