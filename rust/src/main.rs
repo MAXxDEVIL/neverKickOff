@@ -36,6 +36,19 @@ fn config_path(args: &[String]) -> PathBuf {
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    for arg in &argv {
+        match arg.as_str() {
+            "--version" | "-V" => {
+                println!("neverkickoff {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
+            "--help" | "-h" => {
+                println!("neverkickoff [config.json] [--tray]");
+                return;
+            }
+            _ => {}
+        }
+    }
     let wants_tray = argv.iter().any(|arg| arg == "--tray");
     let args: Vec<String> = argv
         .iter()

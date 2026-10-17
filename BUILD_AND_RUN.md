@@ -115,15 +115,23 @@ Every port has a test that reads this file and asserts it. If Python changes and
 the fixture is not regenerated, `tests/test_contract.py` fails and names the
 exact path that moved. See [TEST_PLAN.md](TEST_PLAN.md).
 
-## Installing beside the Python version
+## Installing
 
-`install.sh` and `install.ps1` install the **Python** version into a user
-directory with a launcher on `PATH`. They are unchanged by the ports. To install
-a port instead, copy the artifact and make your own launcher:
+`install.sh` / `install.ps1` install the **Python** version into a user directory
+with a launcher on `PATH`. They are unchanged by the ports.
+
+`install-rust.sh` / `install-rust.ps1` install the **compiled Rust binary** from
+the latest GitHub release, verifying its SHA-256 — see
+[README.md#install-the-compiled-binary-rust](README.md#install-the-compiled-binary-rust).
+No release is published until a `v*` tag is pushed and
+[`.github/workflows/release.yml`](.github/workflows/release.yml) runs.
+
+Installing a build by hand is the same two files — the binary and, next to it,
+the config it reads when given no path:
 
 ```sh
 install -Dm755 rust/target/release/neverkickoff ~/.local/bin/neverkickoff
-install -Dm644 config.json ~/.config/neverkickoff/config.json
+install -Dm644 config.json ~/.local/bin/config.json
 ```
 
 ## Troubleshooting

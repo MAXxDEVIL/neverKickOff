@@ -19,6 +19,10 @@ irm https://raw.githubusercontent.com/MAXxDEVIL/neverKickOff/main/install.ps1 | 
 
 Then run `neverkickoff`. No `git` required — [details below](#one-line-install).
 
+Prefer a single prebuilt executable over Python?
+[Install the compiled binary (Rust)](#install-the-compiled-binary-rust) with
+[`install-rust.sh`](install-rust.sh) / [`install-rust.ps1`](install-rust.ps1).
+
 ## Screenshots
 
 The dark theme, in the Settings, Keyboard, Macro and Automation tabs (the other two
@@ -148,6 +152,52 @@ Prints `all passed`. The tests need no display, so they pass over SSH or headles
   apps, so a `window` filter can never match there; the GUI says so when you start.
 - Global hooks plus synthetic input can look like a keylogger to antivirus, and
   some games treat injected input as cheating — check their rules first.
+
+## Install the compiled binary (Rust)
+
+No Python, no virtualenv — a single self-contained executable, built from the
+same sources and passing the same cross-language test suite (see
+[`TEST_PLAN.md`](TEST_PLAN.md)). The GitHub Action in
+[`.github/workflows/release.yml`](.github/workflows/release.yml) builds it for
+every platform and attaches it to a release.
+
+**macOS and Linux**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/MAXxDEVIL/neverKickOff/main/install-rust.sh | sh
+```
+
+**Windows** (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/MAXxDEVIL/neverKickOff/main/install-rust.ps1 | iex
+```
+
+The script detects your OS and CPU, downloads the matching build from the latest
+release, **verifies its SHA-256**, installs it into `~/.local/bin`
+(`%LOCALAPPDATA%\Programs\neverKickOff` on Windows) and puts that folder on your
+`PATH`. Anything it cannot install itself — `sudo` packages, macOS permissions —
+it **prints, never runs**, exactly like the Python installer.
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Builds | x86-64, arm64 | Intel, Apple Silicon | x86-64 |
+| Needs at runtime | `libX11`, `libXtst`, and `ydotool` on Wayland | Accessibility + Input Monitoring permission | nothing |
+
+It reads `config.json` from next to the executable, so the installer drops a
+default one there and will not overwrite a config you have edited. Installing the
+binary replaces the Python `neverkickoff` command in `~/.local/bin`; the Python
+install itself is left alone.
+
+Published builds come from tagged releases only. Pinning one:
+
+```sh
+NKO_VERSION=v1.0.0 sh -c "$(curl -fsSL https://raw.githubusercontent.com/MAXxDEVIL/neverKickOff/main/install-rust.sh)"
+```
+
+> **No GUI yet.** The Rust port implements the CLI, the timing engine, X11/`ydotool`
+> input and global hotkeys. The GUI and tray are still Python-only. See
+> [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md) for the per-language status.
 
 ## Run
 
@@ -286,6 +336,14 @@ PyInstaller does not cross-compile: build on each OS you want to target.
   Windows: delete `%LOCALAPPDATA%\neverKickOff` and
   `%LOCALAPPDATA%\Programs\neverKickOff`, then drop that second folder from your
   user `Path` (Settings → *Edit environment variables for your account*).
+- **Compiled binary** — delete the executable and the config beside it:
+
+  ```sh
+  rm -f ~/.local/bin/neverkickoff ~/.local/bin/config.json   # macOS / Linux
+  ```
+
+  Windows: delete `%LOCALAPPDATA%\Programs\neverKickOff\neverkickoff.exe` and
+  `config.json` in the same folder.
 - **Manual install** — delete the cloned folder (and its `.venv`).
 - Profiles live in your user config folder, not the install folder — remove it too
   to erase them: `~/.config/neverKickOff` (Linux), `~/Library/Application

@@ -1,0 +1,96 @@
+name: release
+
+# Push a tag like v1.0.0 to publish binaries. `workflow_dispatch` builds the
+# same artefacts without publishing, which is handy for a dry run.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The regression suites must pass before anything is published.
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: system libraries (rdev links libX11 + libXtst)
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxtst-dev
+      - run: cargo fmt --check
+        working-directory: rust
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: rust
+      - run: cargo test
+        working-directory: rust
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 keeps the glibc requirement low; the arm runner is free for
+          # public repos and avoids cross-compiling aarch64.
+          - { target: x86_64-unknown-linux-gnu,  os: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm }
+          - { target: x86_64-apple-darwin,       os: macos-13 }
+          - { target: aarch64-apple-darwin,      os: macos-14 }
+          - { target: x86_64-pc-windows-msvc,    os: windows-2022 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: system libraries (rdev links libX11 + libXtst)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxtst-dev
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+        working-directory: rust
+
+      # Stage <binary> + config.json together: with no path argument the app
+      # reads config.json from next to the executable.
+      - name: package
+        shell: bash
+        working-directory: rust
+        run: |
+          set -eu
+          ext=""; [ "${{ runner.os }}" = "Windows" ] && ext=".exe"
+          name="neverkickoff-${{ matrix.target }}"
+          mkdir -p "stage/$name"
+          cp "target/${{ matrix.target }}/release/neverkickoff$ext" "stage/$name/"
+          cp ../config.json "stage/$name/"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            powershell.exe -NoProfile -Command \
+              "Compress-Archive -Path 'stage/$name' -DestinationPath '$name.zip' -Force"
+          else
+            (cd stage && tar -czf "../$name.tar.gz" "$name")
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neverkickoff-${{ matrix.target }}
+          path: rust/neverkickoff-${{ matrix.target }}.*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: checksums
+        working-directory: assets
+        run: |
+          sha256sum neverkickoff-* > SHA256SUMS
+          cat SHA256SUMS
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" assets/* --generate-notes --verify-tag
