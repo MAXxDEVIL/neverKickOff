@@ -45,8 +45,13 @@ SRC="$TMP/neverKickOff-main"
 [ -f "$SRC/gui.py" ] || die "unexpected archive layout (no gui.py)."
 
 # Copying over an existing install leaves .venv alone, so re-running is an upgrade.
+# config.json is seeded once and never overwritten, so a hand-edited default
+# survives an upgrade.
+# shortcut: only *.py + requirements* are copied, which is all the app reads.
+# Add any new non-.py runtime file (an icon, a data file) to the list.
 mkdir -p "$DIR"
-cp -R "$SRC/." "$DIR/"
+cp "$SRC"/*.py "$SRC"/requirements.txt "$SRC"/requirements-tray.txt "$DIR/"
+[ -f "$DIR/config.json" ] || cp "$SRC/config.json" "$DIR/"
 
 # --- 3. virtualenv + dependencies -------------------------------------------
 if [ ! -x "$DIR/.venv/bin/python" ]; then

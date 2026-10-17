@@ -8,7 +8,6 @@ rust/target/
 
 # Java (built by java/build.sh)
 java/build/
-java/classes/
 java/dist/
 java/lib/
 dist/

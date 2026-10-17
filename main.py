@@ -144,9 +144,6 @@ class Clicker:
         return self._engine is not None
 
 
-import ydotool
-
-
 def main():
     args = [arg for arg in sys.argv[1:] if arg != "--tray"]
     path = Path(args[0]) if args else Path(__file__).with_name("config.json")

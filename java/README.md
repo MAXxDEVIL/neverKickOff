@@ -38,9 +38,17 @@ The output matches the Python version:
 
 ## Global hotkeys
 
-`lib/jnativehook-2.2.2.jar` (JNativeHook 2.2.2, from Maven Central) is downloaded
-and used if present. The jar built by `build.sh` does not embed it, so to get real
-hotkeys put it on the classpath yourself:
+`lib/jnativehook-2.2.2.jar` (JNativeHook 2.2.2, from Maven Central) enables real
+global hotkeys. It is not committed and nothing fetches it for you, so download it
+first (`java/lib/` is git-ignored):
+
+    mkdir -p lib && curl -fL -o lib/jnativehook-2.2.2.jar \
+      https://repo1.maven.org/maven2/com/github/kwhat/jnativehook/2.2.2/jnativehook-2.2.2.jar
+
+Expected SHA-256: `2c7904423bc680af02d9ea9557ae233c35199e302d072773a9d0304b568acd41`
+
+The jar built by `build.sh` does not embed it, so to get real hotkeys put it on the
+classpath yourself:
 
     java -cp "dist/neverkickoff.jar:lib/jnativehook-2.2.2.jar" neverkickoff.Main ../config.json
 

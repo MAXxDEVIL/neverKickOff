@@ -31,7 +31,7 @@ check() {
 }
 
 if [ -n "${PY:-}" ]; then
-    check "python engine (24 tests)" "$PY" test_engine.py
+    check "python engine" "$PY" test_engine.py
     check "python contract guard" "$PY" tests/test_contract.py
 else
     printf 'SKIP  python (no interpreter found)\n'
@@ -41,7 +41,7 @@ if command -v cargo >/dev/null 2>&1 && [ -f rust/Cargo.toml ]; then
     check "rust fmt" sh -c 'cd rust && cargo fmt --check'
     check "rust clippy -D warnings" \
         sh -c 'cd rust && cargo clippy --all-targets --all-features -- -D warnings'
-    check "rust contract + timing (11 tests)" sh -c 'cd rust && cargo test'
+    check "rust contract + timing" sh -c 'cd rust && cargo test'
 else
     printf 'SKIP  rust (cargo not found)\n'
 fi
