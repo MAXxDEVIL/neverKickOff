@@ -66,18 +66,77 @@ def _font(bold=False):
     return face
 
 
+# Dark palette. One place, so the widget code never hardcodes a colour.
+THEME = {
+    "bg": "#1e1e1e",
+    "surface": "#252526",
+    "surface_hi": "#2f2f31",
+    "fg": "#e5e5e5",
+    "muted": "#a3a3a3",
+    "border": "#3f3f46",
+    "primary": "#3b82f6",
+    "accent": "#22c55e",
+    "danger": "#ef4444",
+}
+
+
 def _theme(style):
-    """Flat 'clam' look with a few coloured styles. Returns the frame background."""
+    """Dark flat 'clam' look. Returns the frame background."""
+    c = THEME
     style.theme_use("clam")
-    style.configure("Accent.TButton", background="#1f883d", foreground="white",
-                    font=_font(True), padding=(14, 8))
-    style.map("Accent.TButton", background=[("active", "#1a7f37"), ("pressed", "#166b2e")])
-    style.configure("Stop.TButton", background="#cf222e", foreground="white",
-                    font=_font(True), padding=(14, 8))
-    style.map("Stop.TButton", background=[("active", "#b3202b"), ("pressed", "#9a1c25")])
-    style.configure("Hint.TLabel", foreground="#57606a")
-    style.configure("Error.TLabel", foreground="#cf222e", font=_font(True))
-    return style.lookup("TFrame", "background") or "#dcdad5"
+    root = style.master
+    root.configure(background=c["bg"])
+    style.configure("TFrame", background=c["bg"])
+    style.configure("Bar.TFrame", background=c["surface"])
+    style.configure("Line.TFrame", background=c["border"])
+    style.configure("TLabel", background=c["bg"], foreground=c["fg"])
+    style.configure("BarStatus.TLabel", background=c["surface"], foreground=c["muted"])
+    style.configure("Hint.TLabel", background=c["bg"], foreground=c["muted"])
+    style.configure("Error.TLabel", background=c["bg"], foreground=c["danger"],
+                    font=_font(True))
+    # NB: the ttk class is 'TLabelframe' (lowercase f). 'TLabelFrame' matches
+    # nothing and silently leaves every group box in clam's light grey.
+    style.configure("TLabelframe", background=c["bg"], bordercolor=c["border"],
+                    borderwidth=1, relief="solid")
+    style.configure("TLabelframe.Label", background=c["bg"], foreground=c["muted"])
+    style.configure("TButton", background=c["surface"], foreground=c["fg"],
+                    bordercolor=c["border"], padding=(10, 6))
+    style.map("TButton", background=[("active", c["surface_hi"])],
+              bordercolor=[("focus", c["primary"])])
+    style.configure("Accent.TButton", background=c["accent"], foreground="#0b1a10",
+                    bordercolor=c["accent"], font=_font(True), padding=(14, 8))
+    style.map("Accent.TButton", background=[("active", "#16a34a"), ("pressed", "#15803d")])
+    style.configure("Stop.TButton", background=c["danger"], foreground="#1a0b0b",
+                    bordercolor=c["danger"], font=_font(True), padding=(14, 8))
+    style.map("Stop.TButton", background=[("active", "#dc2626"), ("pressed", "#b91c1c")])
+    style.configure("TNotebook", background=c["bg"], borderwidth=0)
+    style.configure("TNotebook.Tab", background=c["bg"], foreground=c["muted"],
+                    padding=(14, 7))
+    style.map("TNotebook.Tab", background=[("selected", c["surface"])],
+              foreground=[("selected", c["fg"])])
+    style.configure("Treeview", background=c["surface"], fieldbackground=c["surface"],
+                    foreground=c["fg"], bordercolor=c["border"], rowheight=24)
+    style.configure("Treeview.Heading", background=c["bg"], foreground=c["muted"],
+                    bordercolor=c["border"])
+    style.map("Treeview", background=[("selected", c["primary"])],
+              foreground=[("selected", "#ffffff")])
+    style.configure("TEntry", background=c["surface"], fieldbackground=c["surface"],
+                    foreground=c["fg"], bordercolor=c["border"], insertcolor=c["fg"])
+    style.map("TEntry", bordercolor=[("focus", c["primary"])])
+    style.configure("TCombobox", background=c["surface"], fieldbackground=c["surface"],
+                    foreground=c["fg"], bordercolor=c["border"], arrowcolor=c["muted"])
+    style.map("TCombobox", fieldbackground=[("readonly", c["surface"])],
+              foreground=[("readonly", c["fg"])], bordercolor=[("focus", c["primary"])])
+    style.configure("TRadiobutton", background=c["bg"], foreground=c["fg"])
+    style.map("TRadiobutton", background=[("active", c["bg"])])
+    style.configure("Vertical.TScrollbar", background=c["surface"], troughcolor=c["bg"],
+                    bordercolor=c["bg"], arrowcolor=c["muted"])
+    # The combobox dropdown is a plain Tk listbox, which ttk styles cannot reach.
+    root.option_add("*TCombobox*Listbox.background", c["surface"])
+    root.option_add("*TCombobox*Listbox.foreground", c["fg"])
+    root.option_add("*TCombobox*Listbox.selectBackground", c["primary"])
+    root.option_add("*TCombobox*Listbox.selectForeground", "#ffffff")
+    return c["bg"]
 
 
 def _number(text):
@@ -155,8 +214,9 @@ class _Tooltip:
         self.tip = tk.Toplevel(self.widget)
         self.tip.wm_overrideredirect(True)
         self.tip.wm_geometry(f"+{x}+{y}")
-        tk.Label(self.tip, text=self.text, justify="left", background="#fffbe6",
-                 relief="solid", borderwidth=1, padx=6, pady=3).pack()
+        tk.Label(self.tip, text=self.text, justify="left", background="#2d2d30",
+                 foreground="#e5e5e5", relief="solid", borderwidth=1,
+                 padx=6, pady=3).pack()
 
     def _hide(self, _event=None):
         if self.tip:
@@ -240,37 +300,41 @@ class App:
     def _build(self):
         self.kind_trees = {}
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(1, weight=1)
+        self.root.rowconfigure(2, weight=1)
         self._header()
+        ttk.Frame(self.root, style="Line.TFrame", height=1).grid(row=1, column=0, sticky="ew")
         notebook = ttk.Notebook(self.root)
-        notebook.grid(row=1, column=0, sticky="nsew", padx=12)
+        notebook.grid(row=2, column=0, sticky="nsew", padx=12, pady=(10, 0))
         self._tab_settings(notebook)
         self._tab_kind(notebook, "Mouse", "mouse")
         self._tab_kind(notebook, "Keyboard", "key")
         self._tab_kind(notebook, "Key combos", "combo")
         self._tab_macro(notebook)
         self._tab_automation(notebook)
+        ttk.Frame(self.root, style="Line.TFrame", height=1).grid(row=3, column=0, sticky="ew")
         self._footer()
 
     def _header(self):
-        bar = ttk.Frame(self.root, padding=(12, 12, 12, 8))
+        bar = ttk.Frame(self.root, padding=(14, 12, 14, 10), style="Bar.TFrame")
         bar.grid(row=0, column=0, sticky="ew")
         bar.columnconfigure(1, weight=1)
         self.run_button = ttk.Button(bar, text="\u25b6  Start", command=self.toggle,
                                      style="Accent.TButton")
         self.run_button.grid(row=0, column=0, sticky="w")
-        line = ttk.Frame(bar)
+        line = ttk.Frame(bar, style="Bar.TFrame")
         line.grid(row=0, column=1, sticky="ew", padx=(12, 0))
         line.columnconfigure(1, weight=1)
-        self.dot = tk.Canvas(line, width=14, height=14, highlightthickness=0, background=self.bg)
+        self.dot = tk.Canvas(line, width=14, height=14, highlightthickness=0,
+                             background=THEME["surface"])
         self.dot.grid(row=0, column=0)
         self._dot = self.dot.create_oval(4, 4, 11, 11, fill="#57606a", outline="")
-        ttk.Label(line, textvariable=self.status, wraplength=430, justify="left").grid(
+        ttk.Label(line, textvariable=self.status, wraplength=430, justify="left",
+                  style="BarStatus.TLabel").grid(
             row=0, column=1, sticky="w", padx=(6, 0))
 
     def _footer(self):
-        bar = ttk.Frame(self.root, padding=(12, 8, 12, 12))
-        bar.grid(row=2, column=0, sticky="ew")
+        bar = ttk.Frame(self.root, padding=(14, 10, 14, 12))
+        bar.grid(row=4, column=0, sticky="ew")
         bar.columnconfigure(0, weight=1)
         left = ttk.Frame(bar)
         left.grid(row=0, column=0, sticky="w")
