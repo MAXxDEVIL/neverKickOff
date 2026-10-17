@@ -5,6 +5,40 @@ system, a GUI, and click-only-while-a-window-is-focused. Driven by a JSON config
 
 ## Installation
 
+### One-line install
+
+**macOS and Linux**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/MAXxDEVIL/neverKickOff/main/install.sh | sh
+```
+
+**Windows** (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/MAXxDEVIL/neverKickOff/main/install.ps1 | iex
+```
+
+The script downloads the source (no `git` needed), creates a virtualenv, installs
+the dependencies, and adds a `neverkickoff` command that opens the GUI. Anything it
+cannot do itself — `sudo` packages, macOS permissions — it **prints, never runs**.
+
+If Windows PowerShell 5.1 refuses to parse the download (the Internet Explorer
+engine is not configured — common on Server Core), use the WebClient form:
+
+```powershell
+iex (New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/MAXxDEVIL/neverKickOff/main/install.ps1')
+```
+
+Rather not pipe a script into your shell? Run [`install.sh`](install.sh) /
+[`install.ps1`](install.ps1) after reading them, or follow the manual steps below.
+No `git` at all? Replace the first two manual steps with:
+
+```sh
+curl -fsSL https://github.com/MAXxDEVIL/neverKickOff/archive/refs/heads/main.tar.gz | tar xz
+cd neverKickOff-main
+```
+
 ### Requirements
 
 - **Python 3.8 or newer** — the code uses only the standard library plus `pynput`.
@@ -89,6 +123,7 @@ Prints `all passed`. The tests need no display, so they pass over SSH or headles
 ## Run
 
 ```sh
+neverkickoff                # the GUI, if you used the one-line install
 python gui.py               # window: capture hotkeys, edit timing, switch profiles
 python main.py              # config-driven CLI, uses config.json
 python main.py my.json      # any config file
@@ -213,5 +248,17 @@ PyInstaller does not cross-compile: build on each OS you want to target.
 
 ## Uninstall
 
-Delete the cloned folder (and its `.venv`). If you installed into your system
-Python instead: `pip uninstall pynput pystray Pillow`.
+- **One-line install** — delete the folder and the launcher:
+
+  ```sh
+  rm -rf ~/.local/share/neverKickOff ~/.local/bin/neverkickoff   # macOS / Linux
+  ```
+
+  Windows: delete `%LOCALAPPDATA%\neverKickOff` and
+  `%LOCALAPPDATA%\Programs\neverKickOff`, then drop that second folder from your
+  user `Path` (Settings → *Edit environment variables for your account*).
+- **Manual install** — delete the cloned folder (and its `.venv`).
+- Profiles live in your user config folder, not the install folder — remove it too
+  to erase them: `~/.config/neverKickOff` (Linux), `~/Library/Application
+  Support/neverKickOff` (macOS), `%APPDATA%\neverKickOff` (Windows).
+- If you installed into your **system** Python instead: `pip uninstall pynput pystray Pillow`.
