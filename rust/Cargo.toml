@@ -1,0 +1,24 @@
+[package]
+name = "neverkickoff"
+version = "1.0.0"
+edition = "2021"
+description = "Cross-platform auto clicker - Rust port of the Python neverKickOff"
+license = "MIT"
+
+[lib]
+name = "neverkickoff"
+path = "src/lib.rs"
+
+[[bin]]
+name = "neverkickoff"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# X11/XWayland input injection + global hotkeys: the pynput equivalent.
+# Wayland sessions still use the ydotool backend, exactly as the Python version does.
+rdev = "0.5"
+
+[profile.release]
+opt-level = 3
