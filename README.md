@@ -3,6 +3,35 @@
 A tiny cross-platform auto clicker: custom keys and key combinations, a timing
 system, a GUI, and click-only-while-a-window-is-focused. Driven by a JSON config.
 
+## Quick start
+
+macOS and Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/MAXxDEVIL/neverKickOff/main/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/MAXxDEVIL/neverKickOff/main/install.ps1 | iex
+```
+
+Then run `neverkickoff`. No `git` required — [details below](#one-line-install).
+
+## Screenshots
+
+The dark theme, in the Settings, Keyboard, Macro and Automation tabs (the other two
+are Mouse and Key combos):
+
+| Settings | Keyboard |
+| --- | --- |
+| ![Settings tab](docs/settings.png) | ![Keyboard tab](docs/keyboard.png) |
+
+| Macro | Automation |
+| --- | --- |
+| ![Macro tab](docs/macro.png) | ![Automation tab](docs/automation.png) |
+
 ## Installation
 
 ### One-line install
